@@ -1,0 +1,395 @@
+import { comovingDistanceMpc, lookbackTimeGyr, raDecZToCartesian } from '../cosmology/planck18.js';
+
+/**
+ * Fast 3D Simplex-like Noise for Cosmic Web Filaments
+ */
+function hash(x, y, z) {
+  let h = x * 374761393 + y * 668265263 + z * 1274126177;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return (h ^ (h >> 16)) & 0x7fffffff;
+}
+
+function noise3D(x, y, z) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fy = y - iy;
+  const fz = z - iz;
+
+  const h000 = hash(ix, iy, iz) / 0x7fffffff;
+  const h100 = hash(ix + 1, iy, iz) / 0x7fffffff;
+  const h010 = hash(ix, iy + 1, iz) / 0x7fffffff;
+  const h110 = hash(ix + 1, iy + 1, iz) / 0x7fffffff;
+  const h001 = hash(ix, iy, iz + 1) / 0x7fffffff;
+  const h101 = hash(ix + 1, iy, iz + 1) / 0x7fffffff;
+  const h011 = hash(ix, iy + 1, iz + 1) / 0x7fffffff;
+  const h111 = hash(ix + 1, iy + 1, iz + 1) / 0x7fffffff;
+
+  // Smoothstep interpolation
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const uz = fz * fz * (3 - 2 * fz);
+
+  const x00 = h000 * (1 - ux) + h100 * ux;
+  const x10 = h010 * (1 - ux) + h110 * ux;
+  const x01 = h001 * (1 - ux) + h101 * ux;
+  const x11 = h011 * (1 - ux) + h111 * ux;
+
+  const y0 = x00 * (1 - uy) + x10 * uy;
+  const y1 = x01 * (1 - uy) + x11 * uy;
+
+  return y0 * (1 - uz) + y1 * uz;
+}
+
+/**
+ * Computes multi-scale cosmic web density (filaments and voids)
+ */
+function cosmicWebDensity(x, y, z) {
+  const scale1 = 0.015;
+  const scale2 = 0.04;
+  const scale3 = 0.09;
+  const n1 = noise3D(x * scale1, y * scale1, z * scale1);
+  const n2 = noise3D(x * scale2, y * scale2, z * scale2);
+  const n3 = noise3D(x * scale3, y * scale3, z * scale3);
+
+  // Combine noise to form ridge-like filaments
+  const filament = Math.pow(Math.abs(n1 - 0.5) * 2, 0.6) * 0.5 +
+                   Math.pow(Math.abs(n2 - 0.5) * 2, 0.8) * 0.35 +
+                   (n3 * 0.15);
+  return 1.0 - filament; // High values = dense filaments, Low values = voids
+}
+
+/**
+ * Checks if a coordinate (RA in deg, Dec in deg, d in Mpc) is inside
+ * The Boötes Void ("The Great Nothing")
+ * Boötes Void: RA ~ 218 deg (14h 32m), Dec ~ +46 deg, z ~ 0.055 (d ~ 250 Mpc)
+ * Radius ~ 30-35 Mpc
+ */
+export const BOOTES_VOID_CENTER = {
+  ra: 218.0,
+  dec: 46.0,
+  z: 0.055,
+  distanceMpc: 250.0,
+  radiusMpc: 32.0
+};
+
+export const SLOAN_GREAT_WALL = {
+  ra: 175.0,
+  dec: 5.0,
+  z: 0.073,
+  distanceMpc: 325.0
+};
+
+function isInBootesVoid(ra, dec, distMpc) {
+  const dRa = (ra - BOOTES_VOID_CENTER.ra) * Math.cos(dec * Math.PI / 180);
+  const dDec = dec - BOOTES_VOID_CENTER.dec;
+  const angDist = Math.sqrt(dRa * dRa + dDec * dDec);
+  const physDist = angDist * (Math.PI / 180) * distMpc;
+  const radialDist = Math.abs(distMpc - BOOTES_VOID_CENTER.distanceMpc);
+  const totalDist = Math.sqrt(physDist * physDist + radialDist * radialDist);
+  return totalDist < BOOTES_VOID_CENTER.radiusMpc;
+}
+
+/**
+ * Checks if coordinate is in the Sloan Great Wall
+ */
+function isInSloanWall(ra, dec, distMpc) {
+  const dRa = ra - SLOAN_GREAT_WALL.ra;
+  const dDec = dec - SLOAN_GREAT_WALL.dec;
+  const radialDist = Math.abs(distMpc - SLOAN_GREAT_WALL.distanceMpc);
+  return Math.abs(dRa) < 25 && Math.abs(dDec) < 8 && radialDist < 18;
+}
+
+/**
+ * Generates SDSS DR18 Galaxy & Quasar catalog with:
+ * - Dual wedge sky survey geometry (North & South Galactic Caps)
+ * - Filamentary cosmic web & clustering
+ * - Boötes Void (98% underdense)
+ * - Sloan Great Wall (250% overdense)
+ * - Quasars out to redshift z = 7.0
+ */
+export function generateSDSSCatalog(targetCount = 240000) {
+  const numGalaxies = Math.floor(targetCount * 0.78);
+  const numQSOs = targetCount - numGalaxies;
+
+  const positions = new Float32Array(targetCount * 3);
+  const colorParams = new Float32Array(targetCount);
+  const redshifts = new Float32Array(targetCount);
+  const isQSOArray = new Uint8Array(targetCount);
+  const landmarkIds = new Uint8Array(targetCount); // 0=general, 1=bootes_void_border, 2=sloan_wall, 3=quasar_dawn
+
+  // We create 4 normalized orderings for the one-by-one plotting controller
+  const orderRedshift = new Float32Array(targetCount);
+  const orderScan = new Float32Array(targetCount);
+  const orderFilaments = new Float32Array(targetCount);
+  const orderRandom = new Float32Array(targetCount);
+
+  let idx = 0;
+
+  // 1. Generate Galaxies (z in [0.015, 0.45])
+  while (idx < numGalaxies) {
+    // Generate RA and Dec within SDSS DR18 footprint wedges
+    // North Galactic Cap: RA 110..260, Dec -10..65
+    // South Galactic Cap: RA -50..50 (310..360 or 0..50), Dec -15..35
+    const isNGC = Math.random() < 0.65;
+    let ra, dec;
+
+    if (isNGC) {
+      ra = 115 + Math.random() * 140;
+      dec = -8 + Math.random() * 70;
+    } else {
+      ra = (Math.random() < 0.5 ? 310 + Math.random() * 50 : Math.random() * 50);
+      dec = -12 + Math.random() * 45;
+    }
+
+    // Redshift distribution for SDSS main galaxy sample peaks around z ~ 0.10
+    // We use a Gamma-like probability distribution starting from local neighborhood z ~ 0.001
+    const u1 = Math.random();
+    const u2 = Math.random();
+    let z = 0.001 + Math.pow(u1, 1.6) * 0.40;
+    if (Math.random() < 0.15) z = 0.001 + Math.random() * 0.30; // Uniform fill
+
+    const d = comovingDistanceMpc(z);
+
+    // Compute Cartesian coordinates
+    const cosDec = Math.cos((dec * Math.PI) / 180);
+    const x = d * cosDec * Math.cos((ra * Math.PI) / 180);
+    const y = d * cosDec * Math.sin((ra * Math.PI) / 180);
+    const zCoord = d * Math.sin((dec * Math.PI) / 180);
+
+    // Check cosmic web density & voids
+    const inBootes = isInBootesVoid(ra, dec, d);
+    if (inBootes && Math.random() < 0.98) {
+      // Boötes void is 98% empty! Skip almost all points inside
+      continue;
+    }
+
+    const inWall = isInSloanWall(ra, dec, d);
+    const webDensity = cosmicWebDensity(x, y, zCoord);
+
+    // Rejection sample to form realistic filaments (unless in Sloan Wall)
+    if (!inWall && Math.random() > Math.pow(webDensity, 1.8) * 1.3 && Math.random() < 0.82) {
+      continue;
+    }
+
+    // Store Galaxy
+    const i3 = idx * 3;
+    positions[i3 + 0] = x;
+    positions[i3 + 1] = y;
+    positions[i3 + 2] = zCoord;
+
+    // Color param [0.0, 0.5)
+    colorParams[idx] = Math.max(0, Math.min((z - 0.01) / 0.40, 0.999)) * 0.499;
+    redshifts[idx] = z;
+    isQSOArray[idx] = 0;
+
+    if (inBootes) landmarkIds[idx] = 1;
+    else if (inWall) landmarkIds[idx] = 2;
+    else landmarkIds[idx] = 0;
+
+    // Plotting order values
+    orderRedshift[idx] = Math.min(z / 0.45, 1.0) * 0.5; // First half of redshift order
+    orderScan[idx] = ((ra % 360) / 360.0) * 0.8 + (dec + 20) / 100.0 * 0.2;
+    orderFilaments[idx] = 1.0 - webDensity; // Dense filaments first (lowest density value last)
+    orderRandom[idx] = Math.random();
+
+    idx++;
+  }
+
+  // 2. Generate Quasars (QSOs, z in [0.2, 7.0])
+  while (idx < targetCount) {
+    const isNGC = Math.random() < 0.65;
+    let ra, dec;
+    if (isNGC) {
+      ra = 115 + Math.random() * 140;
+      dec = -8 + Math.random() * 70;
+    } else {
+      ra = (Math.random() < 0.5 ? 310 + Math.random() * 50 : Math.random() * 50);
+      dec = -12 + Math.random() * 45;
+    }
+
+    // QSO redshift distribution: wide range from 0.2 out to 7.0
+    const u = Math.random();
+    const z = 0.15 + Math.pow(u, 2.0) * 6.8;
+    const d = comovingDistanceMpc(z);
+
+    const cosDec = Math.cos((dec * Math.PI) / 180);
+    const x = d * cosDec * Math.cos((ra * Math.PI) / 180);
+    const y = d * cosDec * Math.sin((ra * Math.PI) / 180);
+    const zCoord = d * Math.sin((dec * Math.PI) / 180);
+
+    const i3 = idx * 3;
+    positions[i3 + 0] = x;
+    positions[i3 + 1] = y;
+    positions[i3 + 2] = zCoord;
+
+    // Color param [0.5, 1.0]
+    colorParams[idx] = 0.5 + Math.max(0, Math.min((z - 0.15) / 6.85, 0.999)) * 0.499;
+    redshifts[idx] = z;
+    isQSOArray[idx] = 1;
+    landmarkIds[idx] = z >= 4.0 ? 3 : 0; // High redshift quasar dawn
+
+    orderRedshift[idx] = 0.5 + Math.min((z - 0.45) / 6.6, 1.0) * 0.5; // Second half of redshift order
+    orderScan[idx] = ((ra % 360) / 360.0) * 0.8 + (dec + 20) / 100.0 * 0.2;
+    orderFilaments[idx] = Math.random();
+    orderRandom[idx] = Math.random();
+
+    idx++;
+  }
+
+  // Normalize order arrays to strictly span [0, 1]
+  normalizeOrder(orderRedshift);
+  normalizeOrder(orderScan);
+  normalizeOrder(orderFilaments);
+  normalizeOrder(orderRandom);
+
+  return {
+    count: targetCount,
+    positions,
+    colorParams,
+    redshifts,
+    isQSOArray,
+    landmarkIds,
+    orders: {
+      redshift: orderRedshift,
+      scan: orderScan,
+      filaments: orderFilaments,
+      random: orderRandom
+    }
+  };
+}
+
+function normalizeOrder(arr) {
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] < min) min = arr[i];
+    if (arr[i] > max) max = arr[i];
+  }
+  const range = (max - min) || 1.0;
+  for (let i = 0; i < arr.length; i++) {
+    arr[i] = (arr[i] - min) / range;
+  }
+}
+
+/**
+ * Computes redshift histogram bins for interactive distance chart
+ */
+export function computeRedshiftHistogram(redshifts, isQSOArray, minZ = 0.00, maxZ = 0.30, numBins = 50) {
+  const galaxyBins = new Int32Array(numBins);
+  const qsoBins = new Int32Array(numBins);
+  const dz = (maxZ - minZ) / numBins;
+  let totalInRegion = 0;
+  let galaxiesInRegion = 0;
+  let qsosInRegion = 0;
+
+  for (let i = 0; i < redshifts.length; i++) {
+    const z = redshifts[i];
+    if (z >= minZ && z <= maxZ) {
+      const binIdx = Math.min(Math.floor((z - minZ) / dz), numBins - 1);
+      if (isQSOArray[i] === 0) {
+        galaxyBins[binIdx]++;
+        galaxiesInRegion++;
+      } else {
+        qsoBins[binIdx]++;
+        qsosInRegion++;
+      }
+      totalInRegion++;
+    }
+  }
+
+  return {
+    minZ,
+    maxZ,
+    numBins,
+    dz,
+    galaxyBins,
+    qsoBins,
+    totalInRegion,
+    galaxiesInRegion,
+    qsosInRegion
+  };
+}
+
+/**
+ * Custom SDSS SQL CSV / JSON Parser
+ * Parses CSV with columns: ra, dec, z, class ('GALAXY' or 'QSO')
+ */
+export function importCustomSDSSData(csvText) {
+  const lines = csvText.trim().split('\n');
+  if (lines.length <= 1) throw new Error("CSV contains no rows");
+
+  const headers = lines[0].toLowerCase().split(',').map(s => s.trim().replace(/['"]/g, ''));
+  const raIdx = headers.indexOf('ra');
+  const decIdx = headers.indexOf('dec');
+  const zIdx = headers.indexOf('z');
+  const classIdx = headers.findIndex(h => h.includes('class') || h.includes('type'));
+
+  if (raIdx === -1 || decIdx === -1 || zIdx === -1) {
+    throw new Error("CSV must contain 'ra', 'dec', and 'z' columns.");
+  }
+
+  const numRows = lines.length - 1;
+  const positions = new Float32Array(numRows * 3);
+  const colorParams = new Float32Array(numRows);
+  const redshifts = new Float32Array(numRows);
+  const isQSOArray = new Uint8Array(numRows);
+  const landmarkIds = new Uint8Array(numRows);
+
+  const orderRedshift = new Float32Array(numRows);
+  const orderScan = new Float32Array(numRows);
+  const orderFilaments = new Float32Array(numRows);
+  const orderRandom = new Float32Array(numRows);
+
+  let validCount = 0;
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(s => s.trim().replace(/['"]/g, ''));
+    if (cols.length < 3) continue;
+
+    const ra = parseFloat(cols[raIdx]);
+    const dec = parseFloat(cols[decIdx]);
+    const z = parseFloat(cols[zIdx]);
+    const isQSO = classIdx !== -1 && (cols[classIdx].toUpperCase() === 'QSO' || cols[classIdx].toUpperCase() === 'QUASAR');
+
+    if (isNaN(ra) || isNaN(dec) || isNaN(z) || z <= 0) continue;
+
+    const coords = raDecZToCartesian(ra, dec, z, isQSO);
+    const i3 = validCount * 3;
+    positions[i3 + 0] = coords.x;
+    positions[i3 + 1] = coords.y;
+    positions[i3 + 2] = coords.z;
+
+    colorParams[validCount] = coords.colorParam;
+    redshifts[validCount] = z;
+    isQSOArray[validCount] = isQSO ? 1 : 0;
+    landmarkIds[validCount] = 0;
+
+    orderRedshift[validCount] = Math.min(z / 7.0, 1.0);
+    orderScan[validCount] = ((ra % 360) / 360.0);
+    orderFilaments[validCount] = Math.random();
+    orderRandom[validCount] = Math.random();
+
+    validCount++;
+  }
+
+  normalizeOrder(orderRedshift);
+  normalizeOrder(orderScan);
+  normalizeOrder(orderFilaments);
+  normalizeOrder(orderRandom);
+
+  return {
+    count: validCount,
+    positions: positions.subarray(0, validCount * 3),
+    colorParams: colorParams.subarray(0, validCount),
+    redshifts: redshifts.subarray(0, validCount),
+    isQSOArray: isQSOArray.subarray(0, validCount),
+    landmarkIds: landmarkIds.subarray(0, validCount),
+    orders: {
+      redshift: orderRedshift.subarray(0, validCount),
+      scan: orderScan.subarray(0, validCount),
+      filaments: orderFilaments.subarray(0, validCount),
+      random: orderRandom.subarray(0, validCount)
+    }
+  };
+}
