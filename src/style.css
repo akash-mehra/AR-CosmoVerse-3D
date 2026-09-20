@@ -290,6 +290,27 @@ canvas {
   border-color: var(--accent-gold);
 }
 
+.landmark-btn.simbad-btn {
+  border-color: rgba(170, 68, 255, 0.45);
+}
+
+.landmark-btn.simbad-btn:hover {
+  background: rgba(170, 68, 255, 0.18);
+  border-color: var(--accent-violet);
+}
+
+.landmark-btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+  transform: none;
+}
+
+.landmark-btn:disabled:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: none;
+}
+
 /* FLOATING MOUSE CLICK ZOOM POPOVER MENU */
 .zoom-popover {
   position: fixed;
