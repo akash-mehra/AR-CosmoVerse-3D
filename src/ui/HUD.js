@@ -425,6 +425,11 @@ export class HUD {
       // Only trigger click popover if mouse didn't drag (distance < 6px)
       const dist = Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y);
       if (dist < 6) {
+        // A named object takes the click instead, and opens its own detail card
+        if (this.shouldSuppressClick?.(e)) {
+          hidePopover();
+          return;
+        }
         // If clicking on empty canvas or in recording mode
         showPopoverAt(e.clientX, e.clientY);
       }
@@ -491,7 +496,7 @@ export class HUD {
 
   toggleUIVisibility() {
     this.uiHidden = !this.uiHidden;
-    const cards = ['card-header', 'card-telemetry', 'card-controller', 'card-histogram'];
+    const cards = ['card-header', 'card-telemetry', 'card-controller', 'card-histogram', 'named-layer'];
     cards.forEach(id => {
       const el = document.getElementById(id);
       if (el) el.classList.toggle('hidden-hud', this.uiHidden);

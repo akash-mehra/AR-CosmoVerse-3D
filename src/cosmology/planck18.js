@@ -107,6 +107,23 @@ export function lookbackTimeGyr(z) {
 }
 
 /**
+ * Projects RA/Dec (degrees) at a known distance in Mpc into Cartesian coordinates.
+ * Used directly for nearby objects, whose redshift is dominated by peculiar
+ * velocity and so cannot be turned into a distance.
+ */
+export function raDecDistToCartesian(raDeg, decDeg, distMpc) {
+  const raRad = (raDeg * Math.PI) / 180.0;
+  const decRad = (decDeg * Math.PI) / 180.0;
+  const cosDec = Math.cos(decRad);
+
+  return {
+    x: distMpc * cosDec * Math.cos(raRad),
+    y: distMpc * cosDec * Math.sin(raRad),
+    z: distMpc * Math.sin(decRad)
+  };
+}
+
+/**
  * Projects astronomical coordinates (RA/Dec in degrees, redshift z)
  * into 3D Cartesian coordinates (x, y, z in Mpc) + metadata.
  * Ricky Reusser projection:
@@ -115,15 +132,9 @@ export function lookbackTimeGyr(z) {
  *   z = d * sin(Dec)
  */
 export function raDecZToCartesian(raDeg, decDeg, z, isQSO = false) {
-  const raRad = (raDeg * Math.PI) / 180.0;
-  const decRad = (decDeg * Math.PI) / 180.0;
   const d = comovingDistanceMpc(z);
   const lookback = lookbackTimeGyr(z);
-
-  const cosDec = Math.cos(decRad);
-  const x = d * cosDec * Math.cos(raRad);
-  const y = d * cosDec * Math.sin(raRad);
-  const zCoord = d * Math.sin(decRad);
+  const { x, y, z: zCoord } = raDecDistToCartesian(raDeg, decDeg, d);
 
   // Encode color_param: galaxies map to [0, 0.5) and QSOs to [0.5, 1.0]
   let colorParam = 0;

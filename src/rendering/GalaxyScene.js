@@ -31,7 +31,7 @@ export class GalaxyScene {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
     this.controls.maxDistance = 20000.0;
-    this.controls.minDistance = 5.0;
+    this.controls.minDistance = 0.2; // Local Group galaxies sit under 1 Mpc from origin
     this.controls.target.set(0, 0, 0);
 
     // 4. Uniforms

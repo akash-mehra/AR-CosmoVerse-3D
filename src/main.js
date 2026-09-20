@@ -2,6 +2,7 @@ import './style.css';
 import { GalaxyScene } from './rendering/GalaxyScene.js';
 import { PlottingController } from './controller/PlottingController.js';
 import { HUD } from './ui/HUD.js';
+import { NamedObjectLayer } from './ui/NamedObjectLayer.js';
 import { generateSDSSCatalog } from './data/sdssGenerator.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -17,6 +18,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // 3. Initialize Glassmorphic HUD & Histogram
   const hud = new HUD(appContainer, controller, scene);
 
+  // 3b. Labels & detail card for real catalogued objects
+  const namedLayer = new NamedObjectLayer(appContainer, scene);
+  hud.shouldSuppressClick = (e) => namedLayer.hitTest(e.clientX, e.clientY) !== null;
+
   // 4. Generate Authentic SDSS DR18 Galaxy & Quasar Dataset (240,000 objects)
   console.log("Generating SDSS DR18 Galaxy & Quasar catalog...");
   const startTime = performance.now();
@@ -26,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 5. Mount dataset into Scene and Controller
   scene.loadDataset(catalog);
   controller.setDataset(catalog);
+  namedLayer.setDataset(catalog);
 
   // 6. Start high-precision Animation Loop
   let lastTime = performance.now();
@@ -42,6 +48,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Render Three.js scene & update camera damping/flight
     scene.update(deltaTime);
+
+    // Reproject named object labels against the camera just rendered
+    namedLayer.update();
   }
 
   requestAnimationFrame(animate);
@@ -51,6 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
     scene,
     controller,
     hud,
+    namedLayer,
     catalog
   };
 });
