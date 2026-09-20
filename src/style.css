@@ -1162,3 +1162,70 @@ canvas {
   width: 100%;
   justify-content: center;
 }
+
+/* ============================================
+   AR MODE — camera passthrough shell
+   ============================================ */
+
+/* No z-index here on purpose: the layer must not create a stacking context,
+   so the video can sit behind the canvas while the dock sits above it. */
+.ar-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ar-layer.hidden {
+  display: none;
+}
+
+.ar-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.ar-dock {
+  position: absolute;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 40px;
+  max-width: calc(100vw - 32px);
+  pointer-events: auto;
+}
+
+.ar-status {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ar-dock .dock-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* In AR the desktop panels would swamp a phone screen; the dock replaces them. */
+.ar-active .hud-container {
+  display: none;
+}
+
+.landmark-btn.ar-btn {
+  border-color: rgba(0, 240, 255, 0.45);
+}
+
+.landmark-btn.ar-btn:hover {
+  background: rgba(0, 240, 255, 0.2);
+  border-color: var(--accent-cyan);
+}

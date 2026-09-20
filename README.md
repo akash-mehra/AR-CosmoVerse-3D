@@ -49,6 +49,9 @@
 - 🏷️ **Named Objects & Labels**
   A curated set of identified objects — Messier galaxies, clusters, superclusters, voids and famous quasars — is plotted at true coordinates alongside whichever catalog is loaded. Labels are zoom-gated: nearby galaxies surface once you fly into the local volume, large-scale structures label at survey scale. Click any named object for its catalogue IDs, coordinates, redshift, distance and lookback time.
 
+- 📱 **Camera Passthrough AR**
+  View the map through your device camera. The survey floats as a fixed object in the room — move the phone to look around it, pinch to change its apparent size, and tap **Recentre** to bring it back in front of you. Needs a secure context (HTTPS) and a motion sensor; without a gyroscope it falls back to drag-to-look over the live feed.
+
 - 🔍 **Interactive Object Inspector & Spectrum Visualizer**
   Click on any celestial object to view detailed astronomical telemetry:
   - Celestial Coordinates ($\text{RA}, \text{DEC}$)

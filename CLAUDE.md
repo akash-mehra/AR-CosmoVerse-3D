@@ -1,6 +1,6 @@
 # AR-CosmoVerse-3D — working context
 
-Three.js / WebGL map of an SDSS DR18-style survey, being extended into a
+Three.js / WebGL map of an SDSS-style survey, being extended into a
 gesture-controlled AR experience. Vanilla JS + Vite, no framework.
 
 ```bash
@@ -12,105 +12,127 @@ npm run fetch:named  # rebuilds src/data/namedObjects.json from SIMBAD TAP
 
 ## Where the project stands
 
-Phase 1 (named objects) is **code complete and browser verified**, but ships with
-an **empty dataset**: `src/data/namedObjects.json` has `"objects": []`, so no
-labels appear and the app renders exactly as it did before Phase 1.
+Phases 1 and 2 are code complete and browser verified. Phase 3 is next and is
+blocked on a design conversation with the repo owner.
 
-The reason is environmental, not a bug: the previous session's egress policy
-denied the CDS hosts (`simbad.cds.unistra.fr`, `tapvizier.cds.unistra.fr`) with a
-403 on the proxy CONNECT, so the fetch could never run. The repo owner said they
-would allow those hosts in the environment's network policy.
+One open data item: **`src/data/namedObjects.json` still ships empty**
+(`"objects": []`). Labels therefore do not appear until it is populated. The
+ADQL in `scripts/fetchNamedObjects.mjs` has **never been executed** — it was
+written against a service that this environment's egress policy blocks
+(`simbad.cds.unistra.fr` returns 403 at the proxy CONNECT). Expect to iterate on
+it the first time it runs; likely trouble spots are the exact `basic.otype`
+short codes, whether the `ident` subquery avoids a TAP timeout, and
+`mesDistance` unit values. Check reachability first:
 
-### Immediate next action
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' https://simbad.cds.unistra.fr/simbad/sim-tap/capabilities
+```
 
-1. Check reachability: `curl -sS -o /dev/null -w '%{http_code}\n' https://simbad.cds.unistra.fr/simbad/sim-tap/capabilities`
-   - Still blocked → report it, do not route around it. Everything else below still applies.
-2. Run `npm run fetch:named`. On Node >= 22.21 behind the agent proxy, global
-   `fetch` ignores `HTTPS_PROXY` unless you set `NODE_USE_ENV_PROXY=1`.
-3. **The ADQL in `scripts/fetchNamedObjects.mjs` has never been executed** — it was
-   written blind against a blocked service. Expect to iterate on it. Likely
-   trouble spots: the exact `basic.otype` short codes, whether the `ident`
-   subquery is fast enough to avoid a TAP timeout, and `mesDistance` unit values.
-   Query the service directly while iterating rather than guessing.
-4. Sanity check the output before committing it: object count, a few known
-   positions, and that both `tier` values are represented.
-5. Commit the generated JSON.
+Still blocked → report it, do not route around it. On Node >= 22.21 behind the
+agent proxy, global `fetch` ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1`.
+
+Note that the app's runtime SIMBAD client (`simbadSource.js`, the "Load SIMBAD"
+button) hits the same blocked host, so it cannot be exercised here either. Use
+the CSV import path to test catalog swapping — it runs through the same
+`buildCatalog` and `HUD.loadCatalog` choke points.
 
 ## Roadmap
 
-Agreed with the repo owner. Phases 2-4 are not started.
-
 | Phase | Scope | State |
 | --- | --- | --- |
-| 1 | Named objects: real catalogue data, zoom-gated labels, detail card | Code done, data pending |
-| 2 | AR shell: camera passthrough + device-orientation look-around, touch as interim input | Not started |
-| 3 | Gesture control: hand tracking, gesture vocabulary wired to existing scene methods | Blocked on a design discussion with the owner |
-| 4 | Visual & UX polish: shaders, mobile point budget, HUD rebuilt for full-screen AR | Not started |
+| 1 | Named objects: catalogue data, zoom-gated labels, detail card | Done, dataset still empty |
+| 2 | AR shell: camera passthrough + device-orientation look-around | Done |
+| 3 | Gesture control: hand tracking wired to existing scene methods | Blocked on a design discussion |
+| 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
-Notes for the later phases:
+**Phase 3 notes.** The owner has a previous "AR visor" repo that used an
+in-frame layout; this project is deliberately whole-screen with a different
+gesture set. The vocabulary is undecided — ask before building. Most target
+actions already exist as scene methods (`zoomAtScreenPoint`, `flyToLandmark`,
+`smoothFlyTo`, `setRedshiftRange`) plus `ARMode.recentre()` and
+`ARMode.applyDistance()`, so gestures should call into those rather than add
+camera logic. Hand tracking will need a second video consumer — note that
+`ARMode` already owns the `getUserMedia` stream, so share that stream rather
+than opening a second one.
 
-- **Phase 2**: use `getUserMedia` for a live camera background plus
-  `DeviceOrientationEvent` to rotate the camera (the planetarium pattern), *not*
-  WebXR — `immersive-ar` has no iOS Safari support. `GalaxyScene.setTransparentBackground(true)`
-  already clears the canvas to alpha 0, which is the hook for compositing over video.
-- **Phase 3**: the owner has a previous "AR visor" repo that used an in-frame
-  layout; this project is deliberately whole-screen with a different gesture set.
-  The vocabulary is undecided — ask before building. Most target actions already
-  exist as scene methods (`zoomAtScreenPoint`, `flyToLandmark`, `smoothFlyTo`,
-  `setRedshiftRange`), so gestures should call into those rather than add camera logic.
-- **Phase 4**: the HUD is fixed-position and was designed against the solid
-  `#040408` background, so it needs a rebuild once there is live video behind it.
+**Phase 4 notes.** The desktop HUD is entirely hidden in AR right now
+(`.ar-active .hud-container { display: none }`) and replaced by a three-control
+dock. Phase 4 should give AR real controls. Also worth revisiting: the camera
+FOV is not matched to the device camera's FOV, which weakens the illusion, and
+`onResize` would fight any fixed value.
 
 ### Decisions already made — do not re-litigate
 
-- Both object tiers, zoom-gated (nearby Messier galaxies *and* map-scale structures).
-- Data comes from SIMBAD/VizieR, not a hand-curated list.
-- Labels auto-declutter by zoom rather than being always-on or tap-only.
-- The detail card was in scope for Phase 1.
+- Both object tiers, zoom-gated (nearby galaxies *and* map-scale structures).
+- Named-object data comes from SIMBAD, not a hand-curated list.
+- Labels auto-declutter by zoom rather than always-on or tap-only.
+- AR is **model-locked**, not sky-locked: the map floats as an object you look
+  around, and orientation aims the camera. Sky-locking (mapping alt/az to
+  RA/Dec so the map matches the real sky) was considered and deferred — it
+  needs geolocation plus local sidereal time and only works outdoors.
+- Phone testing happens via **deploy previews**, so there is deliberately no
+  HTTPS dev-server setup in this repo. `getUserMedia` needs a secure context,
+  so AR will not work from a plain `http://` LAN address.
 
 ## Architecture
 
 ```
 src/
-  cosmology/planck18.js      Planck 2018 distances/lookback via a 4000-entry lookup table
-  data/sdssGenerator.js      Procedural catalogue + named-object injection
+  cosmology/planck18.js      Planck 2018 distances/lookback via a lookup table
+  data/sdssGenerator.js      Procedural catalogue, buildCatalog, named injection
+  data/simbadSource.js       Runtime SIMBAD TAP client ("Load SIMBAD")
   data/namedObjects.js       Loads namedObjects.json, projects it into Mpc space
   data/namedObjects.json     Generated by scripts/fetchNamedObjects.mjs
-  rendering/GalaxyScene.js   Renderer, camera, OrbitControls, uniforms, camera flights
+  rendering/GalaxyScene.js   Renderer, camera, OrbitControls, uniforms, flights
   rendering/shaders/         galaxy.vert / galaxy.frag — the point cloud
-  ui/HUD.js                  Glassmorphic panels, histogram, CSV import
+  ar/ARMode.js               Camera passthrough, device orientation, AR dock
+  ui/HUD.js                  Glassmorphic panels, histogram, CSV/SIMBAD loading
   ui/NamedObjectLayer.js     Label projection, declutter, picking, detail card
   controller/PlottingController.js  Progressive "plot one by one" engine
 ```
 
-**The 240,000 objects are procedurally generated**, not real survey data —
-`sdssGenerator.js` builds a noise-based cosmic web with a hand-placed Boötes Void
-and Sloan Great Wall. The only real objects in the scene come from
-`namedObjects.json`, appended at the tail of the buffers at their true
-coordinates. So `catalog.count` is `240000 + named.length`, and each entry in
+Two catalog builders feed the same GPU buffers: `generateSDSSCatalog` makes the
+procedural cloud (noise-based cosmic web with a hand-placed Boötes Void and
+Sloan Great Wall), and `buildCatalog(records)` maps real `{ra, dec, z, isQSO}`
+rows from SIMBAD or CSV. **Both append the named objects** at the tail of the
+buffers at true coordinates, so names survive any catalog swap. Each entry in
 `catalog.named` carries the `pointIndex` of its point.
+
+`HUD.loadCatalog` is the single choke point for swapping datasets, and fires
+`onCatalogLoaded` so the label layer rebinds. `main.js` owns the wiring hooks:
+`hud.shouldSuppressClick`, `hud.onCatalogLoaded`, `hud.onEnterAR`.
 
 ## Gotchas
 
+- **The renderer needs `alpha: true`** in its constructor or nothing can show
+  through the canvas, no matter what clear-colour alpha is set. This was
+  `false` originally, which silently broke both the "Alpha BG" toggle and any
+  camera passthrough.
+- **`GalaxyScene.update` has a `cameraDriver` seam.** When set, it is called
+  instead of the auto-orbit / camera-flight / `controls.update()` path, then the
+  frame renders. AR uses it because `OrbitControls.update()` recomputes the
+  camera from its own state every frame and would overwrite an
+  orientation-driven quaternion — note that `controls.enabled = false` alone
+  does *not* stop that, it only gates input.
 - **The vertex shader hides points two ways**: `aSpawnOrder > uPlotProgress`
   (the plotting animation) and `aRedshift` outside `[uMinZ, uMaxZ]`. The default
   range is 0.00–0.30, so most quasars are invisible until the filter is widened.
-  When debugging "my point isn't rendering", check both before suspecting position.
+  Check both before suspecting position.
 - **Nearby galaxies have negative redshift** (M31 is about -0.001), which the
-  redshift filter would clip. `namedObjects.js` stores a clamped `filterZ` for the
-  attribute while the card displays the true value. Keep that split.
+  redshift filter would clip. `namedObjects.js` stores a clamped `filterZ` for
+  the attribute while the card shows the true value. Keep that split.
 - **Nearby objects cannot be placed by redshift at all** — peculiar velocity
-  dominates. They carry `tier: "local"` and a measured `distMpc`, and are
-  projected with `raDecDistToCartesian`. `LOCAL_MAX_MPC` (50) is both the tier
-  boundary and the label-tier switch, read from the JSON.
+  dominates. They carry `tier: "local"` and a measured `distMpc`, projected with
+  `raDecDistToCartesian`. `LOCAL_MAX_MPC` (50) is both the placement boundary
+  and the label-tier switch.
 - **`.glass-card` sets `transition: all 0.35s`.** Anything anchored to a moving
-  world position must override it or it will visibly lag behind the camera.
+  world position must override it or it visibly lags the camera.
+- `.ar-layer` deliberately has no `z-index`, so it does not create a stacking
+  context and the video can sit behind the canvas (z-index 0 vs 1) while the
+  dock sits above it (z-index 20).
 - `controls.minDistance` is 0.2, lowered from 5.0 so the Local Group (under
   1 Mpc) is reachable.
-- `NamedObjectLayer` does its own screen projection and hit test; `main.js` sets
-  `hud.shouldSuppressClick` so a click on a named object opens the card instead
-  of the HUD's zoom popover.
-- The README oversells: there is no spectrum visualizer, and the "object
+- The README still oversells: there is no spectrum visualizer, and the "object
   inspector" it describes only exists for the named subset.
 
 ## Verifying UI changes
@@ -120,10 +142,17 @@ There is no test suite. Drive the real app — Chromium is preinstalled at
 in a scratch directory (not into this project) and launch with
 `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader --no-sandbox`.
 
-The app exposes `window.__SDSS_APP__` (`scene`, `controller`, `hud`, `namedLayer`,
-`catalog`), which is enough to place the camera, force the plot to complete
-(`controller.setInstantAll()`), widen the redshift filter, and assert on DOM
-state — no fixtures or mocks needed.
+For AR, add `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream`
+to auto-grant the camera and supply a synthetic feed, and drive orientation by
+dispatching `new DeviceOrientationEvent('deviceorientation', {alpha, beta, gamma})`
+on an interval — `ARMode` only attaches its listener after `getUserMedia`
+resolves, so a single dispatch gets missed.
+
+The app exposes `window.__SDSS_APP__` (`scene`, `controller`, `hud`,
+`namedLayer`, `arMode`, `catalog`), which is enough to place the camera, force
+the plot to complete (`controller.setInstantAll()`), widen the redshift filter,
+enter AR and assert on DOM state. `catalog` is kept pointing at the live catalog
+across swaps.
 
 To exercise the named-object UI while `namedObjects.json` is empty, write a
 temporary fixture over it, test, then restore the empty file. Do not commit

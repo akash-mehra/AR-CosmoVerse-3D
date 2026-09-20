@@ -67,6 +67,9 @@ export class HUD {
           <button class="landmark-btn simbad-btn" id="btn-load-simbad" title="Fetch real galaxies &amp; quasars from the SIMBAD TAP service (CDS Strasbourg)">
             <span class="icon">🛰️</span> Load SIMBAD
           </button>
+          <button class="landmark-btn ar-btn" id="btn-enter-ar" title="View the map through your device camera">
+            <span class="icon">📱</span> AR View
+          </button>
         </nav>
       </header>
 
@@ -358,7 +361,10 @@ export class HUD {
       this.drawHistogram();
     });
 
-    // 13. CSV modal
+    // 13. AR mode
+    document.getElementById('btn-enter-ar').addEventListener('click', () => this.onEnterAR?.());
+
+    // 14. CSV modal
     const csvModal = document.getElementById('csv-modal');
     document.getElementById('btn-import-csv').addEventListener('click', () => {
       csvModal.classList.remove('hidden');

@@ -3,6 +3,7 @@ import { GalaxyScene } from './rendering/GalaxyScene.js';
 import { PlottingController } from './controller/PlottingController.js';
 import { HUD } from './ui/HUD.js';
 import { NamedObjectLayer } from './ui/NamedObjectLayer.js';
+import { ARMode } from './ar/ARMode.js';
 import { generateSDSSCatalog } from './data/sdssGenerator.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -21,6 +22,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // 3b. Labels & detail card for real catalogued objects
   const namedLayer = new NamedObjectLayer(appContainer, scene);
   hud.shouldSuppressClick = (e) => namedLayer.hitTest(e.clientX, e.clientY) !== null;
+
+  // 3c. Camera passthrough AR shell
+  const arMode = new ARMode(appContainer, scene);
+  hud.onEnterAR = () => arMode.enter();
+
   hud.onCatalogLoaded = (loaded) => {
     namedLayer.setDataset(loaded);
     window.__SDSS_APP__.catalog = loaded; // keep the debug handle on the live catalog
@@ -65,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
     controller,
     hud,
     namedLayer,
+    arMode,
     catalog
   };
 });
