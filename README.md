@@ -46,6 +46,12 @@
   at CDS Strasbourg — real RA/Dec and measured redshifts out to $z \approx 7$,
   projected through the same Planck 2018 model.
 
+- 🏷️ **Named Objects & Labels**
+  A curated set of identified objects — Messier galaxies, clusters, superclusters, voids and famous quasars — is plotted at true coordinates alongside whichever catalog is loaded. Labels are zoom-gated: nearby galaxies surface once you fly into the local volume, large-scale structures label at survey scale. Click any named object for its catalogue IDs, coordinates, redshift, distance and lookback time.
+
+- 📱 **Camera Passthrough AR**
+  View the map through your device camera. The survey floats as a fixed object in the room — move the phone to look around it, pinch to change its apparent size, and tap **Recentre** to bring it back in front of you. Needs a secure context (HTTPS) and a motion sensor; without a gyroscope it falls back to drag-to-look over the live feed.
+
 - 🔍 **Interactive Object Inspector & Spectrum Visualizer**
   Click on any celestial object to view detailed astronomical telemetry:
   - Celestial Coordinates ($\text{RA}, \text{DEC}$)
@@ -119,13 +125,19 @@ Make sure you have [Node.js](https://nodejs.org/) (v16+ recommended) installed o
    npm install
    ```
 
-3. **Start local development server**
+3. **Fetch the named-object catalogue** (optional)
+   ```bash
+   npm run fetch:named
+   ```
+   Queries SIMBAD for real galaxies, clusters and quasars and writes `src/data/namedObjects.json`. The repository ships this file empty; without this step the map renders normally but carries no labels.
+
+4. **Start local development server**
    ```bash
    npm run dev
    ```
    Open your browser at `http://localhost:5173` to explore the universe!
 
-4. **Build for production**
+5. **Build for production**
    ```bash
    npm run build
    ```
@@ -154,6 +166,8 @@ CosmoVerse-3D/
 │   └── screenshots/         # High-resolution application screenshots
 │       ├── survey_wedge.png
 │       └── quasar_dawn.png
+├── scripts/
+│   └── fetchNamedObjects.mjs # Builds the named-object catalogue from SIMBAD TAP
 ├── public/                  # Static web assets & favicon
 ├── src/
 │   ├── assets/              # Textures & graphics

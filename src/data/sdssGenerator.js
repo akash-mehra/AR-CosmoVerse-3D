@@ -1,4 +1,5 @@
 import { comovingDistanceMpc, lookbackTimeGyr, raDecZToCartesian } from '../cosmology/planck18.js';
+import { getNamedObjects } from './namedObjects.js';
 
 // Upper redshift bound of the Planck18 distance table.
 export const MAX_CATALOG_Z = 7.5;
@@ -113,20 +114,25 @@ function isInSloanWall(ra, dec, distMpc) {
  * - Quasars out to redshift z = 7.0
  */
 export function generateSDSSCatalog(targetCount = 240000) {
-  const numGalaxies = Math.floor(targetCount * 0.78);
-  const numQSOs = targetCount - numGalaxies;
+  // Real catalogued objects are appended after the synthetic cloud, at their
+  // true coordinates, so the synthetic density is unchanged.
+  const named = getNamedObjects();
+  const syntheticCount = targetCount;
+  const total = syntheticCount + named.length;
 
-  const positions = new Float32Array(targetCount * 3);
-  const colorParams = new Float32Array(targetCount);
-  const redshifts = new Float32Array(targetCount);
-  const isQSOArray = new Uint8Array(targetCount);
-  const landmarkIds = new Uint8Array(targetCount); // 0=general, 1=bootes_void_border, 2=sloan_wall, 3=quasar_dawn
+  const numGalaxies = Math.floor(syntheticCount * 0.78);
+
+  const positions = new Float32Array(total * 3);
+  const colorParams = new Float32Array(total);
+  const redshifts = new Float32Array(total);
+  const isQSOArray = new Uint8Array(total);
+  const landmarkIds = new Uint8Array(total); // 0=general, 1=bootes_void_border, 2=sloan_wall, 3=quasar_dawn, 4=named
 
   // We create 4 normalized orderings for the one-by-one plotting controller
-  const orderRedshift = new Float32Array(targetCount);
-  const orderScan = new Float32Array(targetCount);
-  const orderFilaments = new Float32Array(targetCount);
-  const orderRandom = new Float32Array(targetCount);
+  const orderRedshift = new Float32Array(total);
+  const orderScan = new Float32Array(total);
+  const orderFilaments = new Float32Array(total);
+  const orderRandom = new Float32Array(total);
 
   let idx = 0;
 
@@ -201,7 +207,7 @@ export function generateSDSSCatalog(targetCount = 240000) {
   }
 
   // 2. Generate Quasars (QSOs, z in [0.2, 7.0])
-  while (idx < targetCount) {
+  while (idx < syntheticCount) {
     const isNGC = Math.random() < 0.65;
     let ra, dec;
     if (isNGC) {
@@ -241,6 +247,29 @@ export function generateSDSSCatalog(targetCount = 240000) {
     idx++;
   }
 
+  // 3. Append real catalogued objects at their true coordinates
+  for (const obj of named) {
+    const i3 = idx * 3;
+    positions[i3 + 0] = obj.position.x;
+    positions[i3 + 1] = obj.position.y;
+    positions[i3 + 2] = obj.position.z;
+
+    colorParams[idx] = obj.colorParam;
+    redshifts[idx] = obj.filterZ;
+    isQSOArray[idx] = obj.isQSO ? 1 : 0;
+    landmarkIds[idx] = 4;
+    obj.pointIndex = idx;
+
+    orderRedshift[idx] = obj.isQSO
+      ? 0.5 + Math.min((obj.filterZ - 0.45) / 6.6, 1.0) * 0.5
+      : Math.min(obj.filterZ / 0.45, 1.0) * 0.5;
+    orderScan[idx] = ((obj.ra % 360) / 360.0) * 0.8 + (obj.dec + 20) / 100.0 * 0.2;
+    orderFilaments[idx] = Math.random();
+    orderRandom[idx] = Math.random();
+
+    idx++;
+  }
+
   // Normalize order arrays to strictly span [0, 1]
   normalizeOrder(orderRedshift);
   normalizeOrder(orderScan);
@@ -248,12 +277,13 @@ export function generateSDSSCatalog(targetCount = 240000) {
   normalizeOrder(orderRandom);
 
   return {
-    count: targetCount,
+    count: total,
     positions,
     colorParams,
     redshifts,
     isQSOArray,
     landmarkIds,
+    named,
     orders: {
       redshift: orderRedshift,
       scan: orderScan,
@@ -319,7 +349,8 @@ export function computeRedshiftHistogram(redshifts, isQSOArray, minZ = 0.00, max
  * Rows with non-finite or out-of-range values are dropped.
  */
 export function buildCatalog(records) {
-  const maxRows = records.length;
+  const named = getNamedObjects();
+  const maxRows = records.length + named.length;
   const positions = new Float32Array(maxRows * 3);
   const colorParams = new Float32Array(maxRows);
   const redshifts = new Float32Array(maxRows);
@@ -367,6 +398,27 @@ export function buildCatalog(records) {
     throw new Error("No rows with usable ra / dec / redshift values.");
   }
 
+  // Named objects ride along with every data source, at their true coordinates.
+  for (const obj of named) {
+    const i3 = validCount * 3;
+    positions[i3 + 0] = obj.position.x;
+    positions[i3 + 1] = obj.position.y;
+    positions[i3 + 2] = obj.position.z;
+
+    colorParams[validCount] = obj.colorParam;
+    redshifts[validCount] = obj.filterZ;
+    isQSOArray[validCount] = obj.isQSO ? 1 : 0;
+    landmarkIds[validCount] = 4;
+    obj.pointIndex = validCount;
+
+    orderRedshift[validCount] = Math.min(obj.filterZ / MAX_CATALOG_Z, 1.0);
+    orderScan[validCount] = (((obj.ra % 360) + 360) % 360) / 360.0;
+    orderFilaments[validCount] = Math.random();
+    orderRandom[validCount] = Math.random();
+
+    validCount++;
+  }
+
   normalizeOrder(orderRedshift.subarray(0, validCount));
   normalizeOrder(orderScan.subarray(0, validCount));
   normalizeOrder(orderFilaments.subarray(0, validCount));
@@ -379,6 +431,7 @@ export function buildCatalog(records) {
     redshifts: redshifts.subarray(0, validCount),
     isQSOArray: isQSOArray.subarray(0, validCount),
     landmarkIds: landmarkIds.subarray(0, validCount),
+    named,
     orders: {
       redshift: orderRedshift.subarray(0, validCount),
       scan: orderScan.subarray(0, validCount),

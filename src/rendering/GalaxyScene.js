@@ -14,7 +14,9 @@ export class GalaxyScene {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: 'high-performance',
-      alpha: false
+      // Needs an alpha channel in the drawing buffer, otherwise a zero-alpha
+      // clear colour still composites opaque and nothing shows through.
+      alpha: true
     });
     this.renderer.setSize(this.width, this.height);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
@@ -31,7 +33,7 @@ export class GalaxyScene {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
     this.controls.maxDistance = 20000.0;
-    this.controls.minDistance = 5.0;
+    this.controls.minDistance = 0.2; // Local Group galaxies sit under 1 Mpc from origin
     this.controls.target.set(0, 0, 0);
 
     // 4. Uniforms
@@ -357,6 +359,13 @@ export class GalaxyScene {
 
   update(deltaTime) {
     this.uniforms.uTime.value += deltaTime;
+
+    // AR drives the camera itself; OrbitControls and camera flights would fight it.
+    if (this.cameraDriver) {
+      this.cameraDriver(deltaTime);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
 
     // Cinematic Auto-Orbit rotation for screen recordings
     if (this.autoOrbit && !this.cameraFlight) {
