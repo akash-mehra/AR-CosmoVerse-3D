@@ -67,6 +67,9 @@ export class HUD {
           <button class="landmark-btn simbad-btn" id="btn-load-simbad" title="Fetch real galaxies &amp; quasars from the SIMBAD TAP service (CDS Strasbourg)">
             <span class="icon">🛰️</span> Load SIMBAD
           </button>
+          <button class="landmark-btn ar-btn" id="btn-enter-ar" title="View the map through your device camera">
+            <span class="icon">📱</span> AR View
+          </button>
         </nav>
       </header>
 
@@ -358,7 +361,10 @@ export class HUD {
       this.drawHistogram();
     });
 
-    // 13. CSV modal
+    // 13. AR mode
+    document.getElementById('btn-enter-ar').addEventListener('click', () => this.onEnterAR?.());
+
+    // 14. CSV modal
     const csvModal = document.getElementById('csv-modal');
     document.getElementById('btn-import-csv').addEventListener('click', () => {
       csvModal.classList.remove('hidden');
@@ -407,6 +413,7 @@ export class HUD {
   loadCatalog(catalog, sourceLabel) {
     this.scene.loadDataset(catalog);
     this.controller.setDataset(catalog);
+    this.onCatalogLoaded?.(catalog);
 
     const badge = this.container.querySelector('.brand-badge');
     const subtitle = this.container.querySelector('.subtitle');
@@ -466,6 +473,11 @@ export class HUD {
       // Only trigger click popover if mouse didn't drag (distance < 6px)
       const dist = Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y);
       if (dist < 6) {
+        // A named object takes the click instead, and opens its own detail card
+        if (this.shouldSuppressClick?.(e)) {
+          hidePopover();
+          return;
+        }
         // If clicking on empty canvas or in recording mode
         showPopoverAt(e.clientX, e.clientY);
       }
@@ -532,7 +544,7 @@ export class HUD {
 
   toggleUIVisibility() {
     this.uiHidden = !this.uiHidden;
-    const cards = ['card-header', 'card-telemetry', 'card-controller', 'card-histogram'];
+    const cards = ['card-header', 'card-telemetry', 'card-controller', 'card-histogram', 'named-layer'];
     cards.forEach(id => {
       const el = document.getElementById(id);
       if (el) el.classList.toggle('hidden-hud', this.uiHidden);
