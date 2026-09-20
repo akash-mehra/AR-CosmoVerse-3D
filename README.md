@@ -40,6 +40,9 @@
 - 🛸 **Cyberpunk Glassmorphic Sci-Fi HUD**
   Sleek dark-mode interface with live cosmic telemetry counters, camera presets (**Boötes Void**, **Sloan Great Wall**, **Quasar Dawn**, **Earth Origin**, **Survey Wedge**), auto-orbit controls, and CSV dataset import/export.
 
+- 🏷️ **Named Objects from SIMBAD**
+  Real catalogued galaxies, clusters, superclusters, voids and quasars are plotted at their true coordinates alongside the synthetic cloud. Labels are zoom-gated: Messier galaxies surface once you fly into the local volume, large-scale structures label at survey scale. Click any named object for its catalogue IDs, coordinates, redshift, distance and lookback time.
+
 - 🔍 **Interactive Object Inspector & Spectrum Visualizer**
   Click on any celestial object to view detailed astronomical telemetry:
   - Celestial Coordinates ($\text{RA}, \text{DEC}$)
@@ -81,13 +84,19 @@ Make sure you have [Node.js](https://nodejs.org/) (v16+ recommended) installed o
    npm install
    ```
 
-3. **Start local development server**
+3. **Fetch the named-object catalogue** (optional)
+   ```bash
+   npm run fetch:named
+   ```
+   Queries SIMBAD for real galaxies, clusters and quasars and writes `src/data/namedObjects.json`. The repository ships this file empty; without this step the map renders normally but carries no labels.
+
+4. **Start local development server**
    ```bash
    npm run dev
    ```
    Open your browser at `http://localhost:5173` to explore the universe!
 
-4. **Build for production**
+5. **Build for production**
    ```bash
    npm run build
    ```
@@ -116,6 +125,8 @@ CosmoVerse-3D/
 │   └── screenshots/         # High-resolution application screenshots
 │       ├── survey_wedge.png
 │       └── quasar_dawn.png
+├── scripts/
+│   └── fetchNamedObjects.mjs # Builds the named-object catalogue from SIMBAD TAP
 ├── public/                  # Static web assets & favicon
 ├── src/
 │   ├── assets/              # Textures & graphics
