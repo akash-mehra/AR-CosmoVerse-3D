@@ -1,4 +1,5 @@
 import { computeRedshiftHistogram, importCustomSDSSData } from '../data/sdssGenerator.js';
+import { fetchSimbadCatalog } from '../data/simbadSource.js';
 
 export class HUD {
   constructor(container, controller, scene) {
@@ -62,6 +63,9 @@ export class HUD {
           </button>
           <button class="landmark-btn import-btn" id="btn-import-csv" title="Import Custom SDSS SQL CSV">
             <span class="icon">📂</span> Import CSV
+          </button>
+          <button class="landmark-btn simbad-btn" id="btn-load-simbad" title="Fetch real galaxies &amp; quasars from the SIMBAD TAP service (CDS Strasbourg)">
+            <span class="icon">🛰️</span> Load SIMBAD
           </button>
         </nav>
       </header>
@@ -366,13 +370,51 @@ export class HUD {
       const csvText = document.getElementById('csv-textarea').value;
       try {
         const importedData = importCustomSDSSData(csvText);
-        this.scene.loadDataset(importedData);
-        this.controller.setDataset(importedData);
+        this.loadCatalog(importedData, 'CSV IMPORT');
         csvModal.classList.add('hidden');
       } catch (err) {
         alert("Error importing CSV: " + err.message);
       }
     });
+
+    // 14. Live SIMBAD catalog fetch
+    const simbadBtn = document.getElementById('btn-load-simbad');
+    simbadBtn.addEventListener('click', async () => {
+      if (simbadBtn.disabled) return;
+      const idleLabel = simbadBtn.innerHTML;
+      simbadBtn.disabled = true;
+
+      try {
+        const catalog = await fetchSimbadCatalog({
+          onProgress: (done, total) => {
+            simbadBtn.innerHTML = `<span class="icon">🛰️</span> SIMBAD ${done}/${total}`;
+          }
+        });
+        this.loadCatalog(catalog, 'SIMBAD');
+        if (catalog.failedBands > 0) {
+          alert(`Loaded ${catalog.count.toLocaleString()} SIMBAD objects, but ${catalog.failedBands} of the query bands failed.`);
+        }
+      } catch (err) {
+        alert("SIMBAD load failed: " + err.message);
+      } finally {
+        simbadBtn.innerHTML = idleLabel;
+        simbadBtn.disabled = false;
+      }
+    });
+  }
+
+  /** Mounts a catalog into the scene and controller, then relabels the header. */
+  loadCatalog(catalog, sourceLabel) {
+    this.scene.loadDataset(catalog);
+    this.controller.setDataset(catalog);
+    this.onCatalogLoaded?.(catalog);
+
+    const badge = this.container.querySelector('.brand-badge');
+    const subtitle = this.container.querySelector('.subtitle');
+    if (badge) badge.textContent = sourceLabel;
+    if (subtitle) {
+      subtitle.textContent = `Planck 2018 Cosmology • ${catalog.count.toLocaleString()} Galaxies & Quasars`;
+    }
   }
 
   bindMouseZoomEvents() {

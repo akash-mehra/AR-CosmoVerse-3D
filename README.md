@@ -40,8 +40,14 @@
 - 🛸 **Cyberpunk Glassmorphic Sci-Fi HUD**
   Sleek dark-mode interface with live cosmic telemetry counters, camera presets (**Boötes Void**, **Sloan Great Wall**, **Quasar Dawn**, **Earth Origin**, **Survey Wedge**), auto-orbit controls, and CSV dataset import/export.
 
-- 🏷️ **Named Objects from SIMBAD**
-  Real catalogued galaxies, clusters, superclusters, voids and quasars are plotted at their true coordinates alongside the synthetic cloud. Labels are zoom-gated: Messier galaxies surface once you fly into the local volume, large-scale structures label at survey scale. Click any named object for its catalogue IDs, coordinates, redshift, distance and lookback time.
+- 🛰️ **Live SIMBAD Catalog (real observations)**
+  One click swaps the synthetic catalog for ~40,000 real galaxies and quasars
+  queried live from the [SIMBAD TAP service](https://simbad.cds.unistra.fr/simbad/sim-tap)
+  at CDS Strasbourg — real RA/Dec and measured redshifts out to $z \approx 7$,
+  projected through the same Planck 2018 model.
+
+- 🏷️ **Named Objects & Labels**
+  A curated set of identified objects — Messier galaxies, clusters, superclusters, voids and famous quasars — is plotted at true coordinates alongside whichever catalog is loaded. Labels are zoom-gated: nearby galaxies surface once you fly into the local volume, large-scale structures label at survey scale. Click any named object for its catalogue IDs, coordinates, redshift, distance and lookback time.
 
 - 🔍 **Interactive Object Inspector & Spectrum Visualizer**
   Click on any celestial object to view detailed astronomical telemetry:
@@ -49,6 +55,38 @@
   - SDSS Photometric Band Magnitudes ($u, g, r, i, z$)
   - Stellar Mass ($M_\odot$) & Morphological Class (Spiral, Elliptical, Quasar)
   - Simulated Dynamic Spectral Emission Profile
+
+---
+
+## 🌐 Data Sources
+
+| Source | How it loads | Notes |
+| :--- | :--- | :--- |
+| **Synthetic SDSS DR18 catalog** | Generated in-browser at startup | 240,000 objects with a modelled cosmic web, Boötes Void and Sloan Great Wall. Instant and offline. |
+| **SIMBAD (CDS Strasbourg)** | 🛰️ **Load SIMBAD** button in the header | ~40,000 **real** galaxies and quasars with measured redshifts, fetched live over the SIMBAD TAP `/sync` endpoint. |
+| **Custom CSV** | 📂 **Import CSV** button | Any table with `ra`, `dec`, `z` and an optional `class` column. |
+
+### How the SIMBAD query works
+
+`src/data/simbadSource.js` posts ADQL to `https://simbad.cds.unistra.fr/simbad/sim-tap/sync`.
+ADQL's `TOP` has no `ORDER BY`, so a single query returns whichever rows the
+server indexes first — heavily biased to the nearby universe. The fetch is
+therefore split into **redshift bands** that are requested in parallel:
+
+```
+galaxies  z ∈ (0.0005, 0.02] (0.02, 0.1] (0.1, 0.5] (0.5, 2.0] (2.0, 7.5]
+quasars   z ∈ (0.1, 1.0]  (1.0, 2.5]  (2.5, 4.0]  (4.0, 7.5]
+```
+
+Galaxy bands filter on `otype = 'Galaxy..' AND otype != 'QSO..'` — the `..`
+suffix matches a whole SIMBAD type hierarchy, and the QSO subtree sits under
+Galaxy, so it is subtracted to keep the two families disjoint. A band that
+fails is reported via `failedBands` rather than failing the whole load, and
+rows with non-finite or out-of-range coordinates are dropped before they reach
+the GPU buffers.
+
+No API key is required, and SIMBAD serves `Access-Control-Allow-Origin: *`, so
+the browser talks to it directly with no proxy.
 
 ---
 
@@ -132,7 +170,9 @@ CosmoVerse-3D/
 │   ├── assets/              # Textures & graphics
 │   ├── controller/          # PlottingController stream logic
 │   ├── cosmology/           # Planck 18 cosmological distance model
-│   ├── data/                # SDSS DR18 synthetic catalog generator
+│   ├── data/                # Catalog sources
+│   │   ├── sdssGenerator.js # Synthetic SDSS DR18 generator + CSV import + buildCatalog()
+│   │   └── simbadSource.js  # Live SIMBAD TAP (ADQL) client
 │   ├── rendering/           # Three.js scene, camera damping & GLSL shaders
 │   │   └── shaders/         # galaxy.vert & galaxy.frag
 │   ├── ui/                  # HUD, spectrum visualizer & control panels

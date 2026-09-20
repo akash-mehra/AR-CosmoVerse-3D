@@ -1,6 +1,9 @@
 import { comovingDistanceMpc, lookbackTimeGyr, raDecZToCartesian } from '../cosmology/planck18.js';
 import { getNamedObjects } from './namedObjects.js';
 
+// Upper redshift bound of the Planck18 distance table.
+export const MAX_CATALOG_Z = 7.5;
+
 /**
  * Fast 3D Simplex-like Noise for Cosmic Web Filaments
  */
@@ -342,6 +345,103 @@ export function computeRedshiftHistogram(redshifts, isQSOArray, minZ = 0.00, max
 }
 
 /**
+ * Builds GPU-ready catalog buffers from plain { ra, dec, z, isQSO } records.
+ * Rows with non-finite or out-of-range values are dropped.
+ */
+export function buildCatalog(records) {
+  const named = getNamedObjects();
+  const maxRows = records.length + named.length;
+  const positions = new Float32Array(maxRows * 3);
+  const colorParams = new Float32Array(maxRows);
+  const redshifts = new Float32Array(maxRows);
+  const isQSOArray = new Uint8Array(maxRows);
+  const landmarkIds = new Uint8Array(maxRows);
+
+  const orderRedshift = new Float32Array(maxRows);
+  const orderScan = new Float32Array(maxRows);
+  const orderFilaments = new Float32Array(maxRows);
+  const orderRandom = new Float32Array(maxRows);
+
+  let validCount = 0;
+
+  for (const record of records) {
+    const ra = Number(record.ra);
+    const dec = Number(record.dec);
+    const z = Number(record.z);
+
+    if (!Number.isFinite(ra) || !Number.isFinite(dec) || !Number.isFinite(z)) continue;
+    if (z <= 0 || z > MAX_CATALOG_Z || dec < -90 || dec > 90) continue;
+
+    const isQSO = Boolean(record.isQSO);
+    const raNorm = ((ra % 360) + 360) % 360;
+    const coords = raDecZToCartesian(raNorm, dec, z, isQSO);
+
+    const i3 = validCount * 3;
+    positions[i3 + 0] = coords.x;
+    positions[i3 + 1] = coords.y;
+    positions[i3 + 2] = coords.z;
+
+    colorParams[validCount] = coords.colorParam;
+    redshifts[validCount] = z;
+    isQSOArray[validCount] = isQSO ? 1 : 0;
+    landmarkIds[validCount] = isQSO && z >= 4.0 ? 3 : 0; // Quasar dawn beacon
+
+    orderRedshift[validCount] = Math.min(z / MAX_CATALOG_Z, 1.0);
+    orderScan[validCount] = raNorm / 360.0;
+    orderFilaments[validCount] = Math.random();
+    orderRandom[validCount] = Math.random();
+
+    validCount++;
+  }
+
+  if (validCount === 0) {
+    throw new Error("No rows with usable ra / dec / redshift values.");
+  }
+
+  // Named objects ride along with every data source, at their true coordinates.
+  for (const obj of named) {
+    const i3 = validCount * 3;
+    positions[i3 + 0] = obj.position.x;
+    positions[i3 + 1] = obj.position.y;
+    positions[i3 + 2] = obj.position.z;
+
+    colorParams[validCount] = obj.colorParam;
+    redshifts[validCount] = obj.filterZ;
+    isQSOArray[validCount] = obj.isQSO ? 1 : 0;
+    landmarkIds[validCount] = 4;
+    obj.pointIndex = validCount;
+
+    orderRedshift[validCount] = Math.min(obj.filterZ / MAX_CATALOG_Z, 1.0);
+    orderScan[validCount] = (((obj.ra % 360) + 360) % 360) / 360.0;
+    orderFilaments[validCount] = Math.random();
+    orderRandom[validCount] = Math.random();
+
+    validCount++;
+  }
+
+  normalizeOrder(orderRedshift.subarray(0, validCount));
+  normalizeOrder(orderScan.subarray(0, validCount));
+  normalizeOrder(orderFilaments.subarray(0, validCount));
+  normalizeOrder(orderRandom.subarray(0, validCount));
+
+  return {
+    count: validCount,
+    positions: positions.subarray(0, validCount * 3),
+    colorParams: colorParams.subarray(0, validCount),
+    redshifts: redshifts.subarray(0, validCount),
+    isQSOArray: isQSOArray.subarray(0, validCount),
+    landmarkIds: landmarkIds.subarray(0, validCount),
+    named,
+    orders: {
+      redshift: orderRedshift.subarray(0, validCount),
+      scan: orderScan.subarray(0, validCount),
+      filaments: orderFilaments.subarray(0, validCount),
+      random: orderRandom.subarray(0, validCount)
+    }
+  };
+}
+
+/**
  * Custom SDSS SQL CSV / JSON Parser
  * Parses CSV with columns: ra, dec, z, class ('GALAXY' or 'QSO')
  */
@@ -359,68 +459,19 @@ export function importCustomSDSSData(csvText) {
     throw new Error("CSV must contain 'ra', 'dec', and 'z' columns.");
   }
 
-  const numRows = lines.length - 1;
-  const positions = new Float32Array(numRows * 3);
-  const colorParams = new Float32Array(numRows);
-  const redshifts = new Float32Array(numRows);
-  const isQSOArray = new Uint8Array(numRows);
-  const landmarkIds = new Uint8Array(numRows);
-
-  const orderRedshift = new Float32Array(numRows);
-  const orderScan = new Float32Array(numRows);
-  const orderFilaments = new Float32Array(numRows);
-  const orderRandom = new Float32Array(numRows);
-
-  let validCount = 0;
-
+  const records = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',').map(s => s.trim().replace(/['"]/g, ''));
     if (cols.length < 3) continue;
 
-    const ra = parseFloat(cols[raIdx]);
-    const dec = parseFloat(cols[decIdx]);
-    const z = parseFloat(cols[zIdx]);
-    const isQSO = classIdx !== -1 && (cols[classIdx].toUpperCase() === 'QSO' || cols[classIdx].toUpperCase() === 'QUASAR');
-
-    if (isNaN(ra) || isNaN(dec) || isNaN(z) || z <= 0) continue;
-
-    const coords = raDecZToCartesian(ra, dec, z, isQSO);
-    const i3 = validCount * 3;
-    positions[i3 + 0] = coords.x;
-    positions[i3 + 1] = coords.y;
-    positions[i3 + 2] = coords.z;
-
-    colorParams[validCount] = coords.colorParam;
-    redshifts[validCount] = z;
-    isQSOArray[validCount] = isQSO ? 1 : 0;
-    landmarkIds[validCount] = 0;
-
-    orderRedshift[validCount] = Math.min(z / 7.0, 1.0);
-    orderScan[validCount] = ((ra % 360) / 360.0);
-    orderFilaments[validCount] = Math.random();
-    orderRandom[validCount] = Math.random();
-
-    validCount++;
+    const className = classIdx !== -1 ? (cols[classIdx] || '').toUpperCase() : '';
+    records.push({
+      ra: parseFloat(cols[raIdx]),
+      dec: parseFloat(cols[decIdx]),
+      z: parseFloat(cols[zIdx]),
+      isQSO: className === 'QSO' || className === 'QUASAR'
+    });
   }
 
-  normalizeOrder(orderRedshift);
-  normalizeOrder(orderScan);
-  normalizeOrder(orderFilaments);
-  normalizeOrder(orderRandom);
-
-  return {
-    count: validCount,
-    positions: positions.subarray(0, validCount * 3),
-    colorParams: colorParams.subarray(0, validCount),
-    redshifts: redshifts.subarray(0, validCount),
-    isQSOArray: isQSOArray.subarray(0, validCount),
-    landmarkIds: landmarkIds.subarray(0, validCount),
-    named: [],
-    orders: {
-      redshift: orderRedshift.subarray(0, validCount),
-      scan: orderScan.subarray(0, validCount),
-      filaments: orderFilaments.subarray(0, validCount),
-      random: orderRandom.subarray(0, validCount)
-    }
-  };
+  return buildCatalog(records);
 }

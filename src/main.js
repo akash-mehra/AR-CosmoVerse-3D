@@ -21,6 +21,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // 3b. Labels & detail card for real catalogued objects
   const namedLayer = new NamedObjectLayer(appContainer, scene);
   hud.shouldSuppressClick = (e) => namedLayer.hitTest(e.clientX, e.clientY) !== null;
+  hud.onCatalogLoaded = (loaded) => {
+    namedLayer.setDataset(loaded);
+    window.__SDSS_APP__.catalog = loaded; // keep the debug handle on the live catalog
+  };
 
   // 4. Generate Authentic SDSS DR18 Galaxy & Quasar Dataset (240,000 objects)
   console.log("Generating SDSS DR18 Galaxy & Quasar catalog...");
