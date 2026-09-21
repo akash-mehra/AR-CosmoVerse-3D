@@ -50,7 +50,8 @@ second turns about 40 degrees and then coasts through another 50 as it winds
 down — most of the movement happens after the hands stop, and that lag is the
 whole feel. Tuning lives in the constants at the top of `SkyGestures.js`
 (`YAW_GAIN`, `STATIC_BREAKAWAY`, `KINETIC_BREAKAWAY`, `SPIN_UP`,
-`RELEASE_DECAY`, `ZOOM_GAIN`, `TRAIL_FULL_SPEED`).
+`RELEASE_DECAY`, `ZOOM_GAIN`, `TRAIL_FULL_SPEED`) — but read the preview's
+metrics line before changing any of them.
 
 The AR dock carries the gesture toggle, a 🔄 Flip control (gesturing at the
 rear camera means not being able to see the screen), Recentre and Exit. A hand
@@ -234,9 +235,25 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
 - **Hand detection runs on its own clock** (`DETECT_INTERVAL_MS`, 30Hz), not per
   rendered frame — `detectForVideo` costs far more than a frame's budget.
   Velocity is integrated per render frame regardless, so the motion stays smooth
-  between detections. Note `readHands` blends using the nominal interval, not
-  the elapsed time, so `DRIVE_RESPONSE / 30` is the per-detection catch-up
-  fraction — at 9.0 that was 0.30 and took ~215ms to reach the hand's speed.
+  between detections.
+- **Never assume the interval between readings.** `HandTracker.read` returns
+  null unless the camera frame has advanced, which is not in step with the
+  render loop, so successful readings arrive irregularly — 33ms, 66ms, 100ms.
+  `applySweep` used to divide the hand's displacement by a hard-coded 33ms,
+  which demanded up to *three times* the speed the hand was actually asking
+  for, by a factor that changed from reading to reading. That one line made the
+  map both too fast and unpredictable. `readHands` now measures the gap and
+  clamps it to `MIN_READING_GAP`..`MAX_READING_GAP`, so a stall cannot be read
+  as one enormous shove. It also returns whether it got a frame, and `update`
+  only charges the detection interval on a hit — advancing it on a miss threw
+  away a whole slot and widened the gap further.
+- **Tune against the on-screen numbers, not adjectives.** The preview's second
+  line shows the measured gap, the speed the hand is demanding, and the speed
+  the sky is turning (`50ms  ask 1.6  sky 1.3`). Measured at a realistic 50ms
+  gap: a hand merely in shot demands ~0.14 rad/s, a wandering hand ~0.35, an
+  unhurried but deliberate sweep ~0.86, a committed one ~1.6. `STATIC_BREAKAWAY`
+  belongs between wandering and deliberate — it was 1.3, above every one of
+  those, so real sweeps were being ignored.
 - **Only the anchor palm has to be open.** The driving hand is sweeping, not
   posing; requiring it to be open too squared the chance of failing to arm.
 - **The sky is a flywheel, not a cursor.** Velocity used to chase the hand with
