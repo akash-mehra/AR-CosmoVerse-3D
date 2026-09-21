@@ -14,10 +14,12 @@ const MIDDLE_MCP = 9;
 const PINKY_MCP = 17;
 const FINGERTIPS = [8, 12, 16, 20];
 
-// Mean fingertip reach over palm length. A spread palm sits near 2.3, a fist
-// near 1.1; the gap is wide enough that one threshold with hysteresis holds.
-const OPEN_ENTER = 1.85;
-const OPEN_EXIT = 1.55;
+// Mean fingertip reach over palm length. Against real hand geometry a relaxed
+// open palm lands near 1.9 and a fist near 1.1, so the old 1.85 entry sat right
+// on the edge: you had to splay hard and hold it. Enter well below a
+// comfortable palm, and keep the exit clear of a fist.
+export const OPEN_ENTER = 1.55;
+export const OPEN_EXIT = 1.25;
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z ?? 0) - (b.z ?? 0));
 
@@ -94,10 +96,15 @@ export class HandTracker {
     const result = this.landmarker.detectForVideo(video, timestampMs);
     const hands = result?.landmarks ?? [];
     if (hands.length < 2) {
-      this.wasOpen = { Left: false, Right: false };
-      // Still worth reporting: the preview needs to show a lone hand so you can
-      // see the tracker working before the gesture can arm.
-      return { partial: true, hands: hands.map((points) => ({ points, role: 'driver' })) };
+      // Deliberately NOT clearing `wasOpen` here: detection drops to one hand
+      // constantly, and resetting hysteresis sends an already-open palm back to
+      // the strict entry threshold, which is what made arming feel slow.
+      // Still worth reporting so the preview shows tracking before it can arm.
+      return {
+        partial: true,
+        hands: hands.map((points) => ({ points, role: 'driver' })),
+        openness: hands.length ? openness(hands[0]) : 0
+      };
     }
 
     const anchorLabel = this.anchorLabel;
@@ -126,6 +133,8 @@ export class HandTracker {
 
     return {
       partial: false,
+      // Surfaced so the preview can show why a palm is not arming.
+      openness: openness(anchor.points),
       anchorOpen: this.isOpen(anchorLabel, anchor.points),
       driverOpen: this.isOpen(anchorLabel === 'Left' ? 'Right' : 'Left', driver.points),
       driver: driverCentre,
