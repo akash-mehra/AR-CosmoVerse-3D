@@ -5,14 +5,42 @@ import { HandTracker } from './HandTracker.js';
 // turns the map roughly a half-turn, which keeps big arcs feeling weighty.
 const YAW_GAIN = Math.PI * 1.15;
 const PITCH_GAIN = Math.PI * 0.55;
-// How much the hands have to part before the map starts pushing away.
-const SPREAD_GAIN = 1.4;
+/*
+ * The sky behaves as a heavy flywheel rather than a cursor. Velocity used to
+ * chase the hand directly with no threshold, so every twitch of a hand that is
+ * simply in shot moved the map.
+ *
+ * Torque is the gap between the speed the hand is asking for and the speed the
+ * wheel already has. Coulomb friction eats a fixed slice of that torque, and
+ * the slice is larger at rest than in motion — so it takes a deliberate shove
+ * to break away, and only a nudge to keep it going or steer it. Mass
+ * (SPIN_UP) limits how fast torque becomes speed, so it winds up rather than
+ * snapping to the hand.
+ */
+const STATIC_BREAKAWAY = 1.3;   // rad/s of demand needed to start it from rest
+const KINETIC_BREAKAWAY = 0.5;  // ...and to change it once it is already turning
+const MOVING_ABOVE = 0.12;      // above this the wheel counts as in motion
+const SPIN_UP = 12.0;           // torque -> speed, i.e. 1 / mass
 
-// While the hands drive, velocity chases the hand. Once they drop, it coasts:
-// the sky keeps turning and winds down instead of stopping dead. At 9 the
-// chase took ~110ms to reach most of the hand's speed, which read as lag on
-// top of the detection interval; the coast is what should feel slow, not this.
-const DRIVE_RESPONSE = 22.0;
+/*
+ * Zoom is a two-handed pull. Sweeping also changes the distance between the
+ * hands — the driver moves, the anchor does not — so separation alone cannot
+ * tell the two apart. A pull is both hands moving along the axis between them
+ * in opposite directions, which a sweep never does.
+ */
+const MIN_PULL = 0.003;         // per-hand travel along that axis, per detection
+const ZOOM_DEADBAND = 0.010;    // relative separation change to ignore outright
+// Distance ends up roughly proportional to hand separation: doubling the gap
+// between your hands roughly doubles the distance. At 1.6 a single wide pull
+// ran the map out 16x, which is not a control anyone can aim.
+const ZOOM_GAIN = 1.0;
+// One detection should never move the map far, whatever the tracker reports.
+const ZOOM_STEP_LIMIT = 0.06;
+// Landmark noise alone can satisfy the opposite-directions test on any given
+// frame, so the rate is taken from a smoothed separation: jitter averages out
+// of it, a sustained pull does not.
+const SEPARATION_SMOOTHING = 0.35;
+
 const RELEASE_DECAY = 0.62;
 const STOP_BELOW = 0.004;
 
@@ -53,7 +81,9 @@ export class SkyGestures {
     this.yawVel = 0;
     this.pitchVel = 0;
     this.lastDriver = null;
-    this.engageSpread = null;
+    this.lastAnchor = null;
+    this.smoothSeparation = null;
+    this.zooming = false;
     this.pendingScale = 1;
     this.nextDetectAt = 0;
 
@@ -141,7 +171,7 @@ export class SkyGestures {
       this.tracker.lastVideoTime = -1;
     }
     this.lastDriver = null;
-    this.engageSpread = null;
+    this.lastAnchor = null;
   }
 
   stop() {
@@ -151,7 +181,7 @@ export class SkyGestures {
     this.yawVel = 0;
     this.pitchVel = 0;
     this.lastDriver = null;
-    this.engageSpread = null;
+    this.lastAnchor = null;
 
     this.releaseSources();
     this.applyTrail(0);
@@ -211,14 +241,16 @@ export class SkyGestures {
     if (reading.partial) {
       this.setEngaged(false);
       this.lastDriver = null;
-      this.engageSpread = null;
+      this.lastAnchor = null;
+      this.smoothSeparation = null;
       return;
     }
 
     if (!engaged) {
       this.setEngaged(false);
       this.lastDriver = null;
-      this.engageSpread = null;
+      this.lastAnchor = null;
+      this.smoothSeparation = null;
       return;
     }
 
@@ -226,26 +258,84 @@ export class SkyGestures {
       // Arm on this frame: seed from it so the first delta is not a jump.
       this.setEngaged(true);
       this.lastDriver = reading.driver;
-      this.engageSpread = reading.spread;
+      this.lastAnchor = reading.anchor;
       return;
     }
 
     const dt = DETECT_INTERVAL_MS / 1000;
-    // Image x grows to the right; sweeping right should carry the sky left past you.
-    const targetYawVel = -((reading.driver.x - this.lastDriver.x) * YAW_GAIN) / dt;
-    const targetPitchVel = ((reading.driver.y - this.lastDriver.y) * PITCH_GAIN) / dt;
-    const blend = Math.min(1, DRIVE_RESPONSE * dt);
+    const zoomed = this.applyZoom(reading);
+    // A pull and a sweep are different gestures; letting a pull also spin the
+    // sky is what made the distance control unusable in the first place.
+    if (!zoomed) this.applySweep(reading, dt);
 
-    this.yawVel += (targetYawVel - this.yawVel) * blend;
-    this.pitchVel += (targetPitchVel - this.pitchVel) * blend;
     this.lastDriver = reading.driver;
+    this.lastAnchor = reading.anchor;
+    this.zooming = zoomed;
+  }
 
-    if (this.engageSpread > 0.02 && reading.spread > 0.02) {
-      const ratio = reading.spread / this.engageSpread;
-      // Hands apart push the map away, together pull it in.
-      this.pendingScale = 1 + (ratio - 1) * SPREAD_GAIN * dt;
-      this.engageSpread = reading.spread;
-    }
+  /**
+   * Both hands travelling along the axis between them, in opposite directions:
+   * apart pushes the map away, together pulls it in. Returns true when the
+   * frame was a pull, so the sweep is skipped.
+   */
+  applyZoom(reading) {
+    if (!this.lastAnchor) return false;
+
+    const ax = reading.driver.x - reading.anchor.x;
+    const ay = reading.driver.y - reading.anchor.y;
+    const separation = Math.hypot(ax, ay);
+    if (separation < 0.05) return false;
+
+    const previous = this.smoothSeparation;
+    this.smoothSeparation = previous == null
+      ? separation
+      : previous + (separation - previous) * SEPARATION_SMOOTHING;
+    if (previous == null) return false;
+
+    const ux = ax / separation;
+    const uy = ay / separation;
+    const driverAlong = (reading.driver.x - this.lastDriver.x) * ux
+                      + (reading.driver.y - this.lastDriver.y) * uy;
+    const anchorAlong = (reading.anchor.x - this.lastAnchor.x) * ux
+                      + (reading.anchor.y - this.lastAnchor.y) * uy;
+
+    // Opposite signs, both past the threshold: the hands are working against
+    // each other along their own axis, which a one-handed sweep cannot fake.
+    const pulling = driverAlong > MIN_PULL && anchorAlong < -MIN_PULL;
+    const pushing = driverAlong < -MIN_PULL && anchorAlong > MIN_PULL;
+    if (!pulling && !pushing) return false;
+
+    const rate = (this.smoothSeparation - previous) / previous;
+    const over = Math.sign(rate) * Math.max(0, Math.abs(rate) - ZOOM_DEADBAND);
+    if (over === 0) return false;
+
+    this.pendingScale = THREE.MathUtils.clamp(
+      1 + over * ZOOM_GAIN, 1 - ZOOM_STEP_LIMIT, 1 + ZOOM_STEP_LIMIT);
+    return true;
+  }
+
+  /** Torque from the driving hand, against a flywheel that resists starting. */
+  applySweep(reading, dt) {
+    // Image x grows to the right; sweeping right should carry the sky left past you.
+    const demandYaw = -((reading.driver.x - this.lastDriver.x) * YAW_GAIN) / dt;
+    const demandPitch = ((reading.driver.y - this.lastDriver.y) * PITCH_GAIN) / dt;
+
+    let torqueYaw = demandYaw - this.yawVel;
+    let torquePitch = demandPitch - this.pitchVel;
+    const torque = Math.hypot(torqueYaw, torquePitch);
+
+    const spinning = Math.hypot(this.yawVel, this.pitchVel) > MOVING_ABOVE;
+    const breakaway = spinning ? KINETIC_BREAKAWAY : STATIC_BREAKAWAY;
+    if (torque <= breakaway) return;
+
+    // Friction takes a fixed bite out of the torque, whatever its direction.
+    const remaining = (torque - breakaway) / torque;
+    torqueYaw *= remaining;
+    torquePitch *= remaining;
+
+    const gain = Math.min(1, SPIN_UP * dt);
+    this.yawVel += torqueYaw * gain;
+    this.pitchVel += torquePitch * gain;
   }
 
   setEngaged(value) {

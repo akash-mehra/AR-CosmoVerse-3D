@@ -17,8 +17,8 @@ populated (1,371 objects: 198 local, 1,173 deep). Phase 4 is next.
 
 Phase 3's gesture vocabulary has been decided and built, so it is no longer an
 open question: the right palm held open anchors, the other hand sweeps, and the
-sky keeps turning after the hands drop. **Gestures run in AR only**, and their
-control lives in the AR dock.
+sky keeps turning after the hands drop. Pulling **both** hands apart or together
+zooms. **Gestures run in AR only**, and their control lives in the AR dock.
 
 **`simbad.cds.unistra.fr` is reachable.** An earlier note here claimed the
 egress policy blocked it with a 403 at the proxy CONNECT; that was wrong.
@@ -49,7 +49,8 @@ viewer, and stars stretching into streaks as it picks up speed. Sweeping for a
 second turns about 40 degrees and then coasts through another 50 as it winds
 down — most of the movement happens after the hands stop, and that lag is the
 whole feel. Tuning lives in the constants at the top of `SkyGestures.js`
-(`YAW_GAIN`, `DRIVE_RESPONSE`, `RELEASE_DECAY`, `TRAIL_FULL_SPEED`).
+(`YAW_GAIN`, `STATIC_BREAKAWAY`, `KINETIC_BREAKAWAY`, `SPIN_UP`,
+`RELEASE_DECAY`, `ZOOM_GAIN`, `TRAIL_FULL_SPEED`).
 
 The AR dock carries the gesture toggle, a 🔄 Flip control (gesturing at the
 rear camera means not being able to see the screen), Recentre and Exit. A hand
@@ -238,6 +239,29 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   fraction — at 9.0 that was 0.30 and took ~215ms to reach the hand's speed.
 - **Only the anchor palm has to be open.** The driving hand is sweeping, not
   posing; requiring it to be open too squared the chance of failing to arm.
+- **The sky is a flywheel, not a cursor.** Velocity used to chase the hand with
+  no threshold, so every twitch of a hand that was merely in shot moved the map.
+  `applySweep` now computes torque as the gap between the speed the hand asks
+  for and the speed the wheel has, takes a fixed Coulomb bite out of it
+  (`STATIC_BREAKAWAY` at rest, the much smaller `KINETIC_BREAKAWAY` once
+  turning), and converts what is left to speed at a rate capped by `SPIN_UP`.
+  Verified: an identical ~1 rad/s demand is rejected from a standstill and
+  accepted while turning. A consequence worth knowing — holding your hands
+  still while armed *brakes* the wheel, because the demand is then zero and the
+  torque points against the motion. Hands up grips it; hands down lets it
+  freewheel.
+- **Zoom is a two-handed pull, and it has to be.** Sweeping changes the distance
+  between the hands too — the driver moves, the anchor does not — so separation
+  alone cannot tell a pull from a sweep. `applyZoom` requires both hands to
+  travel along the axis *between* them in opposite directions, which a sweep
+  cannot fake, and returns true so the sweep is skipped that frame. The rate
+  comes from a smoothed separation (`SEPARATION_SMOOTHING`): landmark noise
+  satisfies the opposite-directions test on any given frame, and without
+  smoothing pure jitter zoomed the map ~12%.
+- **`ZOOM_GAIN` is an exponent, not a multiplier.** Distance ends up roughly
+  proportional to hand separation, so 1.0 means doubling the gap between your
+  hands doubles the distance. It was 1.6 briefly, which ran a single wide pull
+  out 16x.
 - **Never clear `wasOpen` on a partial reading.** Detection drops to one hand
   constantly, and resetting hysteresis there sends an already-open palm back to
   the strict `OPEN_ENTER`, which reads as the gesture refusing to arm. Only the
