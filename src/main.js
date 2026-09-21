@@ -38,10 +38,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const catalog = generateSDSSCatalog(240000);
   console.log(`Generated ${catalog.count.toLocaleString()} objects in ${(performance.now() - startTime).toFixed(1)} ms.`);
 
-  // 5. Mount dataset into Scene and Controller
-  scene.loadDataset(catalog);
-  controller.setDataset(catalog);
-  namedLayer.setDataset(catalog);
+  // Expose for debugger / user exploration in console. Assigned before the
+  // first mount so the onCatalogLoaded hook has somewhere to write.
+  window.__SDSS_APP__ = {
+    scene,
+    controller,
+    hud,
+    namedLayer,
+    arMode,
+    catalog
+  };
+
+  // 5. Mount through the HUD so it owns the dataset it falls back to when the
+  //    SIMBAD push button is switched off.
+  hud.loadCatalog(catalog, 'SDSS DR18');
 
   // 6. Start high-precision Animation Loop
   let lastTime = performance.now();
@@ -64,14 +74,4 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   requestAnimationFrame(animate);
-
-  // Expose for debugger / user exploration in console
-  window.__SDSS_APP__ = {
-    scene,
-    controller,
-    hud,
-    namedLayer,
-    arMode,
-    catalog
-  };
 });

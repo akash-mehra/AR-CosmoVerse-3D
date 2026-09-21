@@ -299,6 +299,19 @@ canvas {
   border-color: var(--accent-violet);
 }
 
+/* Pushed in: the live catalog is mounted. */
+.landmark-btn.simbad-btn[aria-pressed='true'] {
+  background: rgba(46, 220, 130, 0.18);
+  border-color: rgba(46, 220, 130, 0.75);
+  box-shadow: 0 0 14px rgba(46, 220, 130, 0.35), inset 0 1px 3px rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+
+.landmark-btn.simbad-btn[aria-pressed='true']:hover {
+  background: rgba(46, 220, 130, 0.26);
+  border-color: rgba(46, 220, 130, 0.9);
+}
+
 .landmark-btn:disabled {
   opacity: 0.55;
   cursor: progress;
