@@ -299,6 +299,29 @@ canvas {
   border-color: var(--accent-violet);
 }
 
+.landmark-btn.gesture-btn {
+  border-color: rgba(255, 170, 51, 0.45);
+}
+
+.landmark-btn.gesture-btn:hover {
+  background: rgba(255, 170, 51, 0.18);
+  border-color: var(--accent-gold);
+}
+
+.landmark-btn.gesture-btn[aria-pressed='true'] {
+  background: rgba(46, 220, 130, 0.18);
+  border-color: rgba(46, 220, 130, 0.75);
+  color: #fff;
+}
+
+/* Both hands up: the sky is under their control. */
+.landmark-btn.gesture-btn.engaged {
+  background: rgba(255, 170, 51, 0.28);
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 18px rgba(255, 170, 51, 0.5);
+  color: #fff;
+}
+
 /* Pushed in: the live catalog is mounted. */
 .landmark-btn.simbad-btn[aria-pressed='true'] {
   background: rgba(46, 220, 130, 0.18);
