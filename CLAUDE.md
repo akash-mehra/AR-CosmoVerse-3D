@@ -12,10 +12,12 @@ npm run fetch:named  # rebuilds src/data/namedObjects.json from SIMBAD TAP
 
 ## Where the project stands
 
-Phases 1 and 2 are code complete and browser verified, and
-`src/data/namedObjects.json` now ships populated (1,371 objects: 198 local,
-1,173 deep). Phase 3 is next and is blocked on a design conversation with the
-repo owner.
+Phases 1 to 3 are code complete, and `src/data/namedObjects.json` ships
+populated (1,371 objects: 198 local, 1,173 deep). Phase 4 is next.
+
+Phase 3's gesture vocabulary has been decided and built, so it is no longer an
+open question: the right palm held open anchors, the other hand sweeps, and the
+sky keeps turning after the hands drop.
 
 **`simbad.cds.unistra.fr` is reachable.** An earlier note here claimed the
 egress policy blocked it with a 403 at the proxy CONNECT; that was wrong.
@@ -37,18 +39,21 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | --- | --- | --- |
 | 1 | Named objects: catalogue data, zoom-gated labels, detail card | Done, dataset populated |
 | 2 | AR shell: camera passthrough + device-orientation look-around | Done |
-| 3 | Gesture control: hand tracking wired to existing scene methods | Blocked on a design discussion |
+| 3 | Gesture control: two-handed sky turning, inertia, star trails | Done, untested on a real device |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
-**Phase 3 notes.** The owner has a previous "AR visor" repo that used an
-in-frame layout; this project is deliberately whole-screen with a different
-gesture set. The vocabulary is undecided — ask before building. Most target
-actions already exist as scene methods (`zoomAtScreenPoint`, `flyToLandmark`,
-`smoothFlyTo`, `setRedshiftRange`) plus `ARMode.recentre()` and
-`ARMode.applyDistance()`, so gestures should call into those rather than add
-camera logic. Hand tracking will need a second video consumer — note that
-`ARMode` already owns the `getUserMedia` stream, so share that stream rather
-than opening a second one.
+**Phase 3 notes.** Modelled on the Moon Knight sky-turning shot the owner
+supplied: open palms raised, the celestial sphere swinging past a stationary
+viewer, and stars stretching into streaks as it picks up speed. Sweeping for a
+second turns about 40 degrees and then coasts through another 50 as it winds
+down — most of the movement happens after the hands stop, and that lag is the
+whole feel. Tuning lives in the constants at the top of `SkyGestures.js`
+(`YAW_GAIN`, `DRIVE_RESPONSE`, `RELEASE_DECAY`, `TRAIL_FULL_SPEED`).
+
+Still open: nothing has run against a real camera. The sandbox browser cannot
+reach HTTPS, so MediaPipe has never downloaded here and no real hand has been
+tracked — thresholds (`OPEN_ENTER`, `OPEN_EXIT`) and gains are reasoned, not
+measured. Test on the deploy preview before trusting any of them.
 
 **Phase 4 notes.** The desktop HUD is entirely hidden in AR right now
 (`.ar-active .hud-container { display: none }`) and replaced by a three-control
@@ -81,6 +86,8 @@ src/
   rendering/GalaxyScene.js   Renderer, camera, OrbitControls, uniforms, flights
   rendering/shaders/         galaxy.vert / galaxy.frag — the point cloud
   ar/ARMode.js               Camera passthrough, device orientation, AR dock
+  ar/HandTracker.js          MediaPipe hand landmarks -> anchor/driver reading
+  ar/SkyGestures.js          Gesture -> angular velocity, inertia, star trails
   ui/HUD.js                  Glassmorphic panels, histogram, CSV/SIMBAD loading
   ui/NamedObjectLayer.js     Label projection, declutter, picking, detail card
   controller/PlottingController.js  Progressive "plot one by one" engine
@@ -149,6 +156,31 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   1 Mpc) is reachable. `ARMode.MIN_DISTANCE` matches it for the same reason —
   at its old value of 5 Mpc, entering AR near Andromeda snapped the map back
   out and the local tier was unreachable in AR.
+- **Anything that moves the camera around the map goes through `orbitBy`.**
+  `GalaxyScene.orbitBy(dYaw, dPitch, scaleFactor)` swings the camera around the
+  orbit target; `ARMode.orbitBy` has the same signature but swings the anchor
+  direction instead, because in AR the device orientation aims the view and
+  moving the camera itself would slide the view off the map. `SkyGestures` only
+  ever talks to that seam, so it does not care which mode is running.
+- **MediaPipe handedness is from the camera's point of view.** A user-facing
+  feed is mirrored, so the user's right hand is reported as "Left"; the rear
+  camera in AR is not. `HandTracker` takes a `mirrored` flag and `main.js` sets
+  it from whether AR is active. Getting it backwards silently swaps the anchor
+  and driver hands.
+- **The WASM URL in `HandTracker.js` is pinned to the `@mediapipe/tasks-vision`
+  version in package.json.** The JS bundle and the WASM are released as a pair
+  and a mismatch fails to instantiate, so bump both together. The model
+  `.task` file is fetched from Google's CDN on first use — the button sits in a
+  "Loading hands…" state while that happens, and there is no offline fallback.
+- **Hand detection runs on its own clock** (`DETECT_INTERVAL_MS`, 30Hz), not per
+  rendered frame — `detectForVideo` costs far more than a frame's budget.
+  Velocity is integrated per render frame regardless, so the motion stays smooth
+  between detections.
+- **`uTrailAmount` at 0 must reproduce the original round star exactly.** The
+  vertex stage grows the sprite by `1 + uTrailAmount * 5` and the fragment stage
+  divides its sampling by the same factor, so the star keeps its width and only
+  gains length. Additive blending piles stretched sprites up in the dense wedge,
+  which is why alpha is scaled by `inversesqrt(widen)`.
 - The README still oversells: there is no spectrum visualizer, and the "object
   inspector" it describes only exists for the named subset.
 
@@ -173,6 +205,16 @@ across swaps.
 
 `namedObjects.json` is regenerated by `npm run fetch:named`, never edited by
 hand — the data is supposed to come from SIMBAD.
+
+Gestures can be exercised without a camera or the model. Set `gestures.active`,
+point `gestures.target` at the scene, stub `gestures.video` with
+`{ readyState: 4, currentTime: 0 }` and replace `gestures.tracker` with an
+object whose `read()` returns `{ anchorOpen, driverOpen, driver: {x, y},
+anchor: {x, y}, spread }`. Reset `gestures.nextDetectAt = 0` before each
+`update(dt)` so every step reads the stub. That covers the whole motion model —
+engagement, inertia, spread-to-distance and the trail uniforms — and leaves only
+MediaPipe itself untested. For the trails alone, set `scene.uniforms.uTrailAmount`
+and `uTrailDir` directly and screenshot.
 
 Two traps when asserting on labels. `layoutLabels` re-runs every frame, so
 measure a label's position immediately before clicking it rather than reading
