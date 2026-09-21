@@ -186,6 +186,9 @@ export class ARMode {
     this.video.srcObject = stream;
     // A selfie view that is not mirrored reads as broken to everyone.
     this.video.classList.toggle('mirrored', this.isMirrored);
+    // Drives how hard the passthrough is dimmed: a lit room behind the selfie
+    // camera drowns the point cloud, a night sky behind the rear one does not.
+    this.video.dataset.facing = facingMode;
     // Autoplay can still be refused; the element plays once it is on screen.
     this.video.play().catch(() => {});
   }

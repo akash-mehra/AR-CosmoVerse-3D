@@ -1268,6 +1268,36 @@ canvas {
   transform: scaleX(-1);
 }
 
+/*
+ * The point cloud is additive over the passthrough, so whatever the camera
+ * sees sets the floor the faintest stars have to clear. Push the feed down and
+ * drain its colour: it stays legible as a room, and the galaxies get the
+ * dynamic range. Cheap, GPU-composited filters only — no blur, which costs
+ * real time on a phone at full-screen size.
+ */
+.ar-video {
+  filter: brightness(0.5) saturate(0.65);
+}
+
+/* A lit room and a face fill the frame far brighter than a night sky. */
+.ar-video[data-facing='user'] {
+  filter: brightness(0.24) saturate(0.3) contrast(1.12);
+}
+
+/*
+ * Vignette between the feed and the canvas. Equal z-index to the video, so DOM
+ * order puts it above the feed while the canvas (z-index 1) still paints over
+ * both. Darkening the edges is where the labels and the dock live.
+ */
+.ar-layer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 32%, rgba(0, 0, 0, 0.78) 100%);
+}
+
 .ar-dock {
   position: absolute;
   left: 50%;
