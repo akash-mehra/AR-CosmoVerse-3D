@@ -33,6 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const gestures = new SkyGestures(scene);
   gestures.onStateChange = (state) => hud.setGestureState(state);
   arMode.onExit = () => { if (!gestures.ownsStream) gestures.stop(); };
+  // Flipping the AR camera swaps the stream under any gesture session borrowing it.
+  arMode.onCameraChange = (source) => { if (!gestures.ownsStream) gestures.useSource(source); };
 
   hud.onToggleGestures = async () => {
     if (gestures.active) {
@@ -44,9 +46,9 @@ document.addEventListener('DOMContentLoaded', () => {
       await gestures.start({
         target: arMode.active ? arMode : scene,
         stream: arMode.active ? arMode.stream : null,
-        // A user-facing feed is mirrored, so MediaPipe's handedness is flipped;
-        // AR looks out of the back of the phone and is not.
-        mirrored: !arMode.active
+        // Follows the camera actually running, not the mode: AR can be flipped
+        // to the selfie camera, which is read mirrored like the desktop feed.
+        mirrored: arMode.active ? arMode.isMirrored : true
       });
     } catch (err) {
       hud.setGestureState({ active: false });

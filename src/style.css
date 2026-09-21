@@ -1224,6 +1224,11 @@ canvas {
   z-index: 0;
 }
 
+/* A selfie feed that is not mirrored reads as broken to everyone. */
+.ar-video.mirrored {
+  transform: scaleX(-1);
+}
+
 .ar-dock {
   position: absolute;
   left: 50%;

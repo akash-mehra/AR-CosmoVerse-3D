@@ -41,8 +41,10 @@ function openness(points) {
  * Wraps MediaPipe's hand landmarker and reduces each frame to the two things
  * the sky gesture needs: which hand is anchoring, and where the other one is.
  *
- * Handedness comes from the camera's point of view, so a user-facing (mirrored)
- * feed reports the user's right hand as "Left". `mirrored` flips that back.
+ * A user-facing feed sees you reversed: your right hand is reported as "Left",
+ * and moving it to your right walks it toward image-left. `mirrored` undoes
+ * both, so downstream code always gets "x grows as the hand moves to the user's
+ * right" whichever camera is running.
  */
 export class HandTracker {
   constructor({ anchorHand = 'Right', mirrored = true } = {}) {
@@ -117,8 +119,8 @@ export class HandTracker {
       driver = { points: (anchorIsLeftOfFrame ? byX[1] : byX[0]).points };
     }
 
-    const anchorCentre = palmCentre(anchor.points);
-    const driverCentre = palmCentre(driver.points);
+    const anchorCentre = this.toUserFrame(palmCentre(anchor.points));
+    const driverCentre = this.toUserFrame(palmCentre(driver.points));
 
     return {
       anchorOpen: this.isOpen(anchorLabel, anchor.points),
@@ -127,6 +129,14 @@ export class HandTracker {
       anchor: anchorCentre,
       spread: Math.hypot(driverCentre.x - anchorCentre.x, driverCentre.y - anchorCentre.y)
     };
+  }
+
+  /**
+   * Puts a point in the user's own left-right frame. Without this the two
+   * cameras disagree on which way a sweep turns the sky.
+   */
+  toUserFrame(point) {
+    return this.mirrored ? { x: 1 - point.x, y: point.y } : point;
   }
 
   /** Hysteresis keeps a hand hovering near the threshold from flickering. */
