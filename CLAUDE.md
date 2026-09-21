@@ -50,6 +50,9 @@ down — most of the movement happens after the hands stop, and that lag is the
 whole feel. Tuning lives in the constants at the top of `SkyGestures.js`
 (`YAW_GAIN`, `DRIVE_RESPONSE`, `RELEASE_DECAY`, `TRAIL_FULL_SPEED`).
 
+The AR dock has a 🔄 Flip control, because gesturing at the rear camera means
+not being able to see the screen.
+
 Still open: nothing has run against a real camera. The sandbox browser cannot
 reach HTTPS, so MediaPipe has never downloaded here and no real hand has been
 tracked — thresholds (`OPEN_ENTER`, `OPEN_EXIT`) and gains are reasoned, not
@@ -162,11 +165,21 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   direction instead, because in AR the device orientation aims the view and
   moving the camera itself would slide the view off the map. `SkyGestures` only
   ever talks to that seam, so it does not care which mode is running.
-- **MediaPipe handedness is from the camera's point of view.** A user-facing
-  feed is mirrored, so the user's right hand is reported as "Left"; the rear
-  camera in AR is not. `HandTracker` takes a `mirrored` flag and `main.js` sets
-  it from whether AR is active. Getting it backwards silently swaps the anchor
-  and driver hands.
+- **A selfie feed reverses two separate things.** MediaPipe reports the user's
+  right hand as "Left", *and* moving that hand to the user's right walks it
+  toward image-left. `HandTracker`'s `mirrored` flag undoes both — the
+  handedness label via `anchorLabel`, the coordinates via `toUserFrame` — so
+  downstream code always gets "x grows as the hand moves to the user's right".
+  Fix only one and the two cameras disagree about which way a sweep turns the
+  sky. `mirrored` follows the camera actually running (`ARMode.isMirrored`),
+  never the mode: AR can be flipped to the selfie camera.
+- **AR can flip cameras mid-session.** `ARMode.flipCamera()` swaps rear for
+  front, stops the old stream, mirrors the `<video>` for a selfie view, and
+  fires `onCameraChange`. Hand tracking borrows that stream, so `main.js`
+  forwards the new one to `SkyGestures.useSource()`, which rebinds without
+  reloading the model. The rear camera is the right default for looking at the
+  sky, but you cannot watch the screen while gesturing at it — the front camera
+  is what makes the gesture usable one-person.
 - **The WASM URL in `HandTracker.js` is pinned to the `@mediapipe/tasks-vision`
   version in package.json.** The JS bundle and the WASM are released as a pair
   and a mismatch fails to instantiate, so bump both together. The model

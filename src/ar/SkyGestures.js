@@ -124,6 +124,24 @@ export class SkyGestures {
     }
   }
 
+  /**
+   * Rebinds to a different camera without reloading the model — the AR flip
+   * button hands over a new stream, and a selfie feed is read mirrored.
+   */
+  useSource({ stream, mirrored }) {
+    if (!this.active || !stream) return;
+
+    this.stream = stream;
+    if (this.video) this.video.srcObject = stream;
+    if (this.tracker) {
+      this.tracker.mirrored = mirrored;
+      // The next frame is in a new frame of reference; do not diff against the old one.
+      this.tracker.lastVideoTime = -1;
+    }
+    this.lastDriver = null;
+    this.engageSpread = null;
+  }
+
   stop() {
     if (!this.active) return;
     this.active = false;

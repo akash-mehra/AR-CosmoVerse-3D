@@ -30,6 +30,9 @@ export class ARMode {
 
     this.active = false;
     this.stream = null;
+    // Rear camera looks at the sky; front camera is the one you can hold your
+    // hands in front of while still watching the screen.
+    this.facingMode = 'environment';
     this.hasOrientation = false;
     this.pinch = null;
     this.saved = null;
@@ -74,6 +77,7 @@ export class ARMode {
       <div class="ar-dock glass-card">
         <span class="ar-status"></span>
         <button class="dock-btn" type="button" data-ar="recentre" title="Put the map back in front of you">Recentre</button>
+        <button class="dock-btn" type="button" data-ar="flip" title="Switch between the rear and front camera">🔄 Flip</button>
         <button class="dock-btn exit-btn" type="button" data-ar="exit">Exit AR</button>
       </div>
     `;
@@ -83,6 +87,7 @@ export class ARMode {
     this.status = this.root.querySelector('.ar-status');
     this.root.querySelector('[data-ar="exit"]').addEventListener('click', () => this.exit());
     this.root.querySelector('[data-ar="recentre"]').addEventListener('click', () => this.recentre());
+    this.root.querySelector('[data-ar="flip"]').addEventListener('click', () => this.flipCamera());
   }
 
   async enter() {
@@ -99,18 +104,11 @@ export class ARMode {
     const orientationAllowed = await this.requestOrientationPermission();
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false
-      });
+      await this.openCamera(this.facingMode);
     } catch (err) {
       alert(`Camera unavailable: ${err.message}`);
       return;
     }
-
-    this.video.srcObject = this.stream;
-    // Autoplay can still be refused; the element plays once it is on screen.
-    this.video.play().catch(() => {});
 
     this.active = true;
     this.saved = {
@@ -131,6 +129,48 @@ export class ARMode {
 
     if (orientationAllowed) await this.startOrientation();
     this.applyInputMode();
+  }
+
+  /** True when the feed is a selfie view, which is displayed and read mirrored. */
+  get isMirrored() {
+    return this.facingMode === 'user';
+  }
+
+  /** Opens the requested camera and shows it, replacing any stream already up. */
+  async openCamera(facingMode) {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facingMode } },
+      audio: false
+    });
+
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = stream;
+    this.facingMode = facingMode;
+
+    this.video.srcObject = stream;
+    // A selfie view that is not mirrored reads as broken to everyone.
+    this.video.classList.toggle('mirrored', this.isMirrored);
+    // Autoplay can still be refused; the element plays once it is on screen.
+    this.video.play().catch(() => {});
+  }
+
+  /**
+   * Swaps rear for front and back. Hand tracking borrows this stream, so
+   * whoever is listening has to rebind to the new one — and to the fact that a
+   * selfie feed reports handedness and hand motion mirrored.
+   */
+  async flipCamera() {
+    if (!this.active) return;
+    const next = this.isMirrored ? 'environment' : 'user';
+
+    try {
+      await this.openCamera(next);
+    } catch (err) {
+      alert(`Could not switch camera: ${err.message}`);
+      return;
+    }
+
+    this.onCameraChange?.({ stream: this.stream, mirrored: this.isMirrored });
   }
 
   async requestOrientationPermission() {
