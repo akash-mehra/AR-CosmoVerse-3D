@@ -17,7 +17,8 @@ populated (1,371 objects: 198 local, 1,173 deep). Phase 4 is next.
 
 Phase 3's gesture vocabulary has been decided and built, so it is no longer an
 open question: the right palm held open anchors, the other hand sweeps, and the
-sky keeps turning after the hands drop.
+sky keeps turning after the hands drop. **Gestures run in AR only**, and their
+control lives in the AR dock.
 
 **`simbad.cds.unistra.fr` is reachable.** An earlier note here claimed the
 egress policy blocked it with a 403 at the proxy CONNECT; that was wrong.
@@ -50,8 +51,11 @@ down — most of the movement happens after the hands stop, and that lag is the
 whole feel. Tuning lives in the constants at the top of `SkyGestures.js`
 (`YAW_GAIN`, `DRIVE_RESPONSE`, `RELEASE_DECAY`, `TRAIL_FULL_SPEED`).
 
-The AR dock has a 🔄 Flip control, because gesturing at the rear camera means
-not being able to see the screen.
+The AR dock carries the gesture toggle, a 🔄 Flip control (gesturing at the
+rear camera means not being able to see the screen), Recentre and Exit. A hand
+preview sits top-left showing the camera frame with the landmarks and skeleton
+drawn over it — without it a gesture that will not arm gives you nothing to go
+on, since a hand out of frame and a palm read as closed look identical.
 
 Still open: nothing has run against a real camera. The sandbox browser cannot
 reach HTTPS, so MediaPipe has never downloaded here and no real hand has been
@@ -89,6 +93,7 @@ src/
   rendering/GalaxyScene.js   Renderer, camera, OrbitControls, uniforms, flights
   rendering/shaders/         galaxy.vert / galaxy.frag — the point cloud
   ar/ARMode.js               Camera passthrough, device orientation, AR dock
+  ar/HandPreview.js          Picture-in-picture of what the tracker sees
   ar/HandTracker.js          MediaPipe hand landmarks -> anchor/driver reading
   ar/SkyGestures.js          Gesture -> angular velocity, inertia, star trails
   ui/HUD.js                  Glassmorphic panels, histogram, CSV/SIMBAD loading
@@ -173,6 +178,23 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   Fix only one and the two cameras disagree about which way a sweep turns the
   sky. `mirrored` follows the camera actually running (`ARMode.isMirrored`),
   never the mode: AR can be flipped to the selfie camera.
+- **Gestures are AR-only, and that is why the control is in the AR dock.** The
+  HUD is hidden wholesale in AR (`.ar-active .hud-container { display: none }`),
+  so a gesture button in the header is unreachable exactly where it is needed —
+  that was the original bug. `SkyGestures.start()` now requires a stream and
+  refuses without one, and `main.js` binds `target: arMode`. Binding the target
+  to the scene instead is the other half of that bug: AR's `cameraDriver`
+  overwrites the camera every frame, so scene-targeted gestures do nothing
+  visible.
+- **The global `canvas` rule absolutely positions every canvas on the page.**
+  `canvas { position: absolute; width: 100%; height: 100% }` exists for the
+  WebGL surface, so any other canvas has to opt back into flow
+  (`.ar-hand-canvas` sets `position: static`) or its parent collapses to
+  nothing around it.
+- **The AR dock wraps.** Four controls plus the status line overflow a phone on
+  one row and `.dock-btn` does not shrink, so `.ar-dock` is `flex-wrap: wrap`.
+  Its height therefore varies — do not anchor anything above it. The hand
+  preview is top-left for that reason.
 - **AR can flip cameras mid-session.** `ARMode.flipCamera()` swaps rear for
   front, stops the old stream, mirrors the `<video>` for a selfie view, and
   fires `onCameraChange`. Hand tracking borrows that stream, so `main.js`
@@ -220,14 +242,18 @@ across swaps.
 hand — the data is supposed to come from SIMBAD.
 
 Gestures can be exercised without a camera or the model. Set `gestures.active`,
-point `gestures.target` at the scene, stub `gestures.video` with
+point `gestures.target` at `arMode` (or the scene), stub `gestures.video` with
 `{ readyState: 4, currentTime: 0 }` and replace `gestures.tracker` with an
-object whose `read()` returns `{ anchorOpen, driverOpen, driver: {x, y},
-anchor: {x, y}, spread }`. Reset `gestures.nextDetectAt = 0` before each
+object whose `read()` returns `{ partial: false, anchorOpen, driverOpen,
+driver: {x, y}, anchor: {x, y}, spread, hands: [] }` — and give it a `mirrored`
+property, which the preview call reads. Reset `gestures.nextDetectAt = 0` before each
 `update(dt)` so every step reads the stub. That covers the whole motion model —
 engagement, inertia, spread-to-distance and the trail uniforms — and leaves only
 MediaPipe itself untested. For the trails alone, set `scene.uniforms.uTrailAmount`
-and `uTrailDir` directly and screenshot.
+and `uTrailDir` directly and screenshot. The hand preview draws from whatever
+you hand it: `arMode.handPreview.draw({ video, hands: [{points, role}], engaged,
+mirrored })` with 21 synthetic normalised points per hand renders the full
+skeleton without MediaPipe.
 
 Two traps when asserting on labels. `layoutLabels` re-runs every frame, so
 measure a label's position immediately before clicking it rather than reading

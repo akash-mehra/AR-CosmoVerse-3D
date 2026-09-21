@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { HandPreview } from './HandPreview.js';
 
 const DEG = Math.PI / 180;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -76,6 +77,7 @@ export class ARMode {
       <video class="ar-video" playsinline muted autoplay></video>
       <div class="ar-dock glass-card">
         <span class="ar-status"></span>
+        <button class="dock-btn" type="button" data-ar="gestures" aria-pressed="false" title="Turn the sky with your hands: hold your right palm open to anchor, sweep with the other">🖐️ Gestures</button>
         <button class="dock-btn" type="button" data-ar="recentre" title="Put the map back in front of you">Recentre</button>
         <button class="dock-btn" type="button" data-ar="flip" title="Switch between the rear and front camera">🔄 Flip</button>
         <button class="dock-btn exit-btn" type="button" data-ar="exit">Exit AR</button>
@@ -83,11 +85,20 @@ export class ARMode {
     `;
     this.container.appendChild(this.root);
 
+    // What the hand tracker sees, so a gesture that will not arm is diagnosable.
+    this.handPreview = new HandPreview();
+    this.root.appendChild(this.handPreview.el);
+
     this.video = this.root.querySelector('.ar-video');
     this.status = this.root.querySelector('.ar-status');
     this.root.querySelector('[data-ar="exit"]').addEventListener('click', () => this.exit());
     this.root.querySelector('[data-ar="recentre"]').addEventListener('click', () => this.recentre());
     this.root.querySelector('[data-ar="flip"]').addEventListener('click', () => this.flipCamera());
+
+    this.gestureBtn = this.root.querySelector('[data-ar="gestures"]');
+    this.gestureBtn.addEventListener('click', () => {
+      if (!this.gestureBtn.disabled) this.onToggleGestures?.();
+    });
   }
 
   async enter() {
@@ -129,6 +140,31 @@ export class ARMode {
 
     if (orientationAllowed) await this.startOrientation();
     this.applyInputMode();
+  }
+
+  /**
+   * Paints the dock's gesture control. 'loading' covers the one-off model
+   * download; 'engaged' means both palms are up and driving the sky.
+   */
+  setGestureState({ active = false, engaged = false, loading = false } = {}) {
+    const button = this.gestureBtn;
+    if (!button) return;
+
+    button.disabled = loading;
+    button.setAttribute('aria-pressed', String(active));
+    button.classList.toggle('engaged', engaged);
+    button.textContent = loading
+      ? '🖐️ Loading…'
+      : engaged ? '✋ Turning' : active ? '🟢 Gestures' : '🖐️ Gestures';
+
+    if (active) this.handPreview.show();
+    else this.handPreview.hide();
+
+    if (this.status && this.hasOrientation) {
+      this.status.textContent = active
+        ? (engaged ? 'Sweeping the sky' : 'Open both palms')
+        : 'Move to look around';
+    }
   }
 
   /** True when the feed is a selfie view, which is displayed and read mirrored. */
@@ -333,6 +369,7 @@ export class ARMode {
 
     this.hasOrientation = false;
     this.pinch = null;
+    this.setGestureState({ active: false });
     this.container.classList.remove('ar-active');
     this.root.classList.add('hidden');
 
