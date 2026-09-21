@@ -1,6 +1,8 @@
 import { computeRedshiftHistogram, importCustomSDSSData } from '../data/sdssGenerator.js';
 import { fetchSimbadCatalog } from '../data/simbadSource.js';
 
+const SIMBAD_LABEL = 'SIMBAD';
+
 export class HUD {
   constructor(container, controller, scene) {
     this.container = container;
@@ -9,6 +11,13 @@ export class HUD {
     this.minZFilter = 0.00;
     this.maxZFilter = 0.30;
     this.uiHidden = false;
+    // SIMBAD is a push button: the catalog loaded before it was switched on is
+    // kept so the second push can restore it, and the fetch is cached so
+    // toggling back on does not re-query the service.
+    this.simbadActive = false;
+    this.simbadCatalog = null;
+    this.baseCatalog = null;
+    this.baseSourceLabel = 'SDSS DR18';
     this.lastClickPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 
     this.renderDOM();
@@ -64,8 +73,8 @@ export class HUD {
           <button class="landmark-btn import-btn" id="btn-import-csv" title="Import Custom SDSS SQL CSV">
             <span class="icon">📂</span> Import CSV
           </button>
-          <button class="landmark-btn simbad-btn" id="btn-load-simbad" title="Fetch real galaxies &amp; quasars from the SIMBAD TAP service (CDS Strasbourg)">
-            <span class="icon">🛰️</span> Load SIMBAD
+          <button class="landmark-btn simbad-btn" id="btn-load-simbad" type="button" aria-pressed="false" title="Load real galaxies &amp; quasars from the SIMBAD TAP service (CDS Strasbourg)">
+            <span class="icon">🔴</span> SIMBAD Off
           </button>
           <button class="landmark-btn ar-btn" id="btn-enter-ar" title="View the map through your device camera">
             <span class="icon">📱</span> AR View
@@ -383,30 +392,63 @@ export class HUD {
       }
     });
 
-    // 14. Live SIMBAD catalog fetch
-    const simbadBtn = document.getElementById('btn-load-simbad');
-    simbadBtn.addEventListener('click', async () => {
-      if (simbadBtn.disabled) return;
-      const idleLabel = simbadBtn.innerHTML;
-      simbadBtn.disabled = true;
+    // 14. Live SIMBAD catalog push button
+    this.simbadBtn = document.getElementById('btn-load-simbad');
+    this.simbadBtn.addEventListener('click', () => this.toggleSimbad());
+  }
 
-      try {
-        const catalog = await fetchSimbadCatalog({
-          onProgress: (done, total) => {
-            simbadBtn.innerHTML = `<span class="icon">🛰️</span> SIMBAD ${done}/${total}`;
-          }
-        });
-        this.loadCatalog(catalog, 'SIMBAD');
-        if (catalog.failedBands > 0) {
-          alert(`Loaded ${catalog.count.toLocaleString()} SIMBAD objects, but ${catalog.failedBands} of the query bands failed.`);
-        }
-      } catch (err) {
-        alert("SIMBAD load failed: " + err.message);
-      } finally {
-        simbadBtn.innerHTML = idleLabel;
-        simbadBtn.disabled = false;
+  /**
+   * Push once for the live SIMBAD catalog, push again to drop back to whatever
+   * was loaded before it. The fetch is cached, so only the first push waits on
+   * the network.
+   */
+  async toggleSimbad() {
+    const button = this.simbadBtn;
+    if (!button || button.disabled) return;
+
+    if (this.simbadActive) {
+      if (!this.baseCatalog) return;
+      this.loadCatalog(this.baseCatalog, this.baseSourceLabel);
+      return;
+    }
+
+    button.disabled = true;
+    this.renderSimbadButton('Connecting…');
+
+    try {
+      this.simbadCatalog ??= await fetchSimbadCatalog({
+        onProgress: (done, total) => this.renderSimbadButton(`${done}/${total}`)
+      });
+      this.loadCatalog(this.simbadCatalog, SIMBAD_LABEL);
+
+      if (this.simbadCatalog.failedBands > 0) {
+        alert(`Loaded ${this.simbadCatalog.count.toLocaleString()} SIMBAD objects, but ${this.simbadCatalog.failedBands} of the query bands failed.`);
       }
-    });
+    } catch (err) {
+      alert("SIMBAD load failed: " + err.message);
+      this.renderSimbadButton();
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  /** Paints the push button: 🟢 live, 🔴 off, or the in-flight fetch progress. */
+  renderSimbadButton(progress = null) {
+    const button = this.simbadBtn;
+    if (!button) return;
+
+    if (progress !== null) {
+      button.innerHTML = `<span class="icon">🛰️</span> SIMBAD ${progress}`;
+      return;
+    }
+
+    button.setAttribute('aria-pressed', String(this.simbadActive));
+    button.innerHTML = this.simbadActive
+      ? '<span class="icon">🟢</span> SIMBAD Live'
+      : '<span class="icon">🔴</span> SIMBAD Off';
+    button.title = this.simbadActive
+      ? 'Switch the live SIMBAD catalog off and restore the previous dataset'
+      : 'Load real galaxies & quasars from the SIMBAD TAP service (CDS Strasbourg)';
   }
 
   /** Mounts a catalog into the scene and controller, then relabels the header. */
@@ -414,6 +456,14 @@ export class HUD {
     this.scene.loadDataset(catalog);
     this.controller.setDataset(catalog);
     this.onCatalogLoaded?.(catalog);
+
+    this.simbadActive = sourceLabel === SIMBAD_LABEL;
+    if (!this.simbadActive) {
+      // Anything loaded by other means becomes what SIMBAD falls back to.
+      this.baseCatalog = catalog;
+      this.baseSourceLabel = sourceLabel;
+    }
+    this.renderSimbadButton();
 
     const badge = this.container.querySelector('.brand-badge');
     const subtitle = this.container.querySelector('.subtitle');
