@@ -1,10 +1,9 @@
 import * as THREE from 'three';
 import { HandTracker } from './HandTracker.js';
 
-// Hand travel across the frame, in radians of sky. A full sweep of the frame
-// turns the map roughly a half-turn, which keeps big arcs feeling weighty.
-const YAW_GAIN = Math.PI * 1.15;
-const PITCH_GAIN = Math.PI * 0.55;
+// Hand travel across the frame, in radians of sky.
+const YAW_GAIN = Math.PI * 0.55;
+const PITCH_GAIN = Math.PI * 0.28;
 /*
  * The sky behaves as a heavy flywheel rather than a cursor. Velocity used to
  * chase the hand directly with no threshold, so every twitch of a hand that is
@@ -17,9 +16,13 @@ const PITCH_GAIN = Math.PI * 0.55;
  * (SPIN_UP) limits how fast torque becomes speed, so it winds up rather than
  * snapping to the hand.
  */
-const STATIC_BREAKAWAY = 1.3;   // rad/s of demand needed to start it from rest
-const KINETIC_BREAKAWAY = 0.5;  // ...and to change it once it is already turning
-const MOVING_ABOVE = 0.12;      // above this the wheel counts as in motion
+// Measured at a realistic 50ms between readings: a hand simply in shot demands
+// ~0.14 rad/s, a wandering hand ~0.35, an unhurried but deliberate sweep ~0.86.
+// The bar belongs in the gap between the last two — 1.3 sat above all of them
+// and ignored real sweeps.
+const STATIC_BREAKAWAY = 0.60;  // rad/s of demand needed to start it from rest
+const KINETIC_BREAKAWAY = 0.20; // ...and to change it once it is already turning
+const MOVING_ABOVE = 0.06;      // above this the wheel counts as in motion
 const SPIN_UP = 12.0;           // torque -> speed, i.e. 1 / mass
 
 /*
@@ -46,6 +49,11 @@ const STOP_BELOW = 0.004;
 
 // Detection is far more expensive than a render frame, so it runs on its own clock.
 const DETECT_INTERVAL_MS = 1000 / 30;
+// Readings arrive irregularly — the camera frame has to have advanced, which is
+// not in step with the render loop — so the gap between two of them is measured,
+// not assumed. Clamped because a stall must not be read as one enormous shove.
+const MIN_READING_GAP = 0.02;
+const MAX_READING_GAP = 0.20;
 
 // Angular speed, in rad/s, at which the star trails reach full stretch.
 const TRAIL_FULL_SPEED = 1.5;
@@ -84,6 +92,9 @@ export class SkyGestures {
     this.lastAnchor = null;
     this.smoothSeparation = null;
     this.zooming = false;
+    this.lastReadingAt = null;
+    this.lastGap = null;
+    this.lastDemand = 0;
     this.pendingScale = 1;
     this.nextDetectAt = 0;
 
@@ -194,8 +205,10 @@ export class SkyGestures {
 
     const now = performance.now();
     if (now >= this.nextDetectAt) {
-      this.nextDetectAt = now + DETECT_INTERVAL_MS;
-      this.readHands(now);
+      // Only charge the interval when a frame was actually read. Advancing it
+      // on a miss throws away up to a whole detection slot and widens the gap
+      // between readings for no reason.
+      if (this.readHands(now)) this.nextDetectAt = now + DETECT_INTERVAL_MS;
     }
 
     if (!this.engaged) {
@@ -216,15 +229,19 @@ export class SkyGestures {
     this.applyTrail(Math.hypot(this.yawVel, this.pitchVel));
   }
 
+  /** @returns true when a frame was read, so the caller can pace detection. */
   readHands(now) {
     let reading = null;
     try {
       reading = this.tracker.read(this.video, now);
     } catch {
       // A dropped frame is not worth tearing the gesture down for.
-      return;
+      return false;
     }
-    if (!reading) return;
+    if (!reading) return false;
+
+    const previousAt = this.lastReadingAt;
+    this.lastReadingAt = now / 1000;
 
     // Only the anchor palm has to be deliberately open. The driving hand just
     // has to be present — it is sweeping, not posing, and requiring a second
@@ -235,7 +252,11 @@ export class SkyGestures {
       hands: reading.hands,
       engaged,
       openness: reading.openness,
-      mirrored: this.tracker.mirrored
+      mirrored: this.tracker.mirrored,
+      // Read these off the screen before touching any constant.
+      gapMs: this.lastGap ? Math.round(this.lastGap * 1000) : null,
+      demand: this.lastDemand ?? 0,
+      speed: Math.hypot(this.yawVel, this.pitchVel)
     });
 
     if (reading.partial) {
@@ -243,7 +264,7 @@ export class SkyGestures {
       this.lastDriver = null;
       this.lastAnchor = null;
       this.smoothSeparation = null;
-      return;
+      return true;
     }
 
     if (!engaged) {
@@ -251,18 +272,23 @@ export class SkyGestures {
       this.lastDriver = null;
       this.lastAnchor = null;
       this.smoothSeparation = null;
-      return;
+      return true;
     }
 
-    if (!this.engaged) {
+    if (!this.engaged || previousAt == null) {
       // Arm on this frame: seed from it so the first delta is not a jump.
       this.setEngaged(true);
       this.lastDriver = reading.driver;
       this.lastAnchor = reading.anchor;
-      return;
+      return true;
     }
 
-    const dt = DETECT_INTERVAL_MS / 1000;
+    // Readings arrive irregularly, so the gap between the last two is measured
+    // rather than assumed. Dividing by a fixed 33ms when the real gap was 100ms
+    // demanded three times the speed the hand was actually asking for.
+    const dt = THREE.MathUtils.clamp(
+      this.lastReadingAt - previousAt, MIN_READING_GAP, MAX_READING_GAP);
+    this.lastGap = dt;
     const zoomed = this.applyZoom(reading);
     // A pull and a sweep are different gestures; letting a pull also spin the
     // sky is what made the distance control unusable in the first place.
@@ -271,6 +297,7 @@ export class SkyGestures {
     this.lastDriver = reading.driver;
     this.lastAnchor = reading.anchor;
     this.zooming = zoomed;
+    return true;
   }
 
   /**
@@ -322,6 +349,7 @@ export class SkyGestures {
 
     let torqueYaw = demandYaw - this.yawVel;
     let torquePitch = demandPitch - this.pitchVel;
+    this.lastDemand = Math.hypot(demandYaw, demandPitch);
     const torque = Math.hypot(torqueYaw, torquePitch);
 
     const spinning = Math.hypot(this.yawVel, this.pitchVel) > MOVING_ABOVE;

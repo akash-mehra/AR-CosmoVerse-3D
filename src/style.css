@@ -1246,6 +1246,18 @@ canvas {
   color: var(--accent-gold);
 }
 
+/* Live tuning numbers. Small on purpose — diagnostic, not chrome. */
+.ar-hand-metrics {
+  display: block;
+  padding: 0 6px 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.53rem;
+  letter-spacing: 0.02em;
+  color: rgba(0, 240, 255, 0.72);
+  text-align: center;
+  white-space: nowrap;
+}
+
 .dock-btn.engaged {
   background: rgba(255, 170, 51, 0.28);
   border-color: var(--accent-gold);
