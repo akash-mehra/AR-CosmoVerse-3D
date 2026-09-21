@@ -57,10 +57,19 @@ preview sits top-left showing the camera frame with the landmarks and skeleton
 drawn over it — without it a gesture that will not arm gives you nothing to go
 on, since a hand out of frame and a palm read as closed look identical.
 
-Still open: nothing has run against a real camera. The sandbox browser cannot
-reach HTTPS, so MediaPipe has never downloaded here and no real hand has been
-tracked — thresholds (`OPEN_ENTER`, `OPEN_EXIT`) and gains are reasoned, not
-measured. Test on the deploy preview before trusting any of them.
+**Arming was the first thing real hands broke.** Detection itself was fine —
+the skeleton tracked in real time — but going gold and starting to scroll
+lagged badly, from four compounding causes, all in this repo rather than in
+MediaPipe: `OPEN_ENTER` at 1.85 sat right on top of a real open palm (~1.9);
+both hands had to be open when only the anchor should pose; hysteresis was
+wiped on every one-hand frame, which detection produces constantly; and the
+velocity chase needed ~215ms to reach the hand's speed. If arming still feels
+slow, the preview caption now prints the anchor's measured openness against the
+threshold — read it before changing anything.
+
+Still open: no real hand has been tracked *here*. The sandbox browser cannot
+reach HTTPS, so MediaPipe has never downloaded in this environment. Test on the
+deploy preview.
 
 **Phase 4 notes.** The desktop HUD is entirely hidden in AR right now
 (`.ar-active .hud-container { display: none }`) and replaced by a three-control
@@ -210,7 +219,15 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
 - **Hand detection runs on its own clock** (`DETECT_INTERVAL_MS`, 30Hz), not per
   rendered frame — `detectForVideo` costs far more than a frame's budget.
   Velocity is integrated per render frame regardless, so the motion stays smooth
-  between detections.
+  between detections. Note `readHands` blends using the nominal interval, not
+  the elapsed time, so `DRIVE_RESPONSE / 30` is the per-detection catch-up
+  fraction — at 9.0 that was 0.30 and took ~215ms to reach the hand's speed.
+- **Only the anchor palm has to be open.** The driving hand is sweeping, not
+  posing; requiring it to be open too squared the chance of failing to arm.
+- **Never clear `wasOpen` on a partial reading.** Detection drops to one hand
+  constantly, and resetting hysteresis there sends an already-open palm back to
+  the strict `OPEN_ENTER`, which reads as the gesture refusing to arm. Only the
+  constructor and `close()` reset it.
 - **`uTrailAmount` at 0 must reproduce the original round star exactly.** The
   vertex stage grows the sprite by `1 + uTrailAmount * 5` and the fragment stage
   divides its sampling by the same factor, so the star keeps its width and only

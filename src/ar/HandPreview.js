@@ -1,4 +1,5 @@
 import { HandLandmarker } from '@mediapipe/tasks-vision';
+import { OPEN_ENTER } from './HandTracker.js';
 
 const ANCHOR_COLOUR = '#ffaa33';
 const DRIVER_COLOUR = '#00f0ff';
@@ -42,10 +43,12 @@ export class HandPreview {
   /**
    * @param video    the element MediaPipe is reading
    * @param hands    [{ points, role }] in raw frame coordinates
-   * @param engaged  both hands up and driving the sky
+   * @param engaged  anchor palm open and driving the sky
+   * @param openness the anchor hand's measured openness, shown against the
+   *   threshold so a palm that will not arm says why instead of just failing
    * @param mirrored selfie feed, drawn flipped to match what the user sees
    */
-  draw({ video, hands = [], engaged = false, mirrored = false }) {
+  draw({ video, hands = [], engaged = false, openness = 0, mirrored = false }) {
     const { ctx, canvas } = this;
     const { width, height } = canvas;
 
@@ -61,9 +64,15 @@ export class HandPreview {
     ctx.restore();
 
     this.el.classList.toggle('engaged', engaged);
-    this.caption.textContent = engaged
-      ? 'turning'
-      : hands.length === 2 ? 'open both palms' : `${hands.length} hand${hands.length === 1 ? '' : 's'}`;
+    if (engaged) {
+      this.caption.textContent = 'turning';
+    } else if (hands.length >= 2) {
+      // The number is the tuning handle: if a comfortably open palm reads below
+      // the threshold, OPEN_ENTER is wrong rather than the hand.
+      this.caption.textContent = `open palm ${openness.toFixed(2)}/${OPEN_ENTER}`;
+    } else {
+      this.caption.textContent = hands.length === 1 ? 'need both hands' : 'no hands';
+    }
   }
 
   /** Covers the box with the frame rather than letting the aspect squash it. */
