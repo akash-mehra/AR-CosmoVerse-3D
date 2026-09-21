@@ -168,7 +168,21 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   world position must override it or it visibly lags the camera.
 - `.ar-layer` deliberately has no `z-index`, so it does not create a stacking
   context and the video can sit behind the canvas (z-index 0 vs 1) while the
-  dock sits above it (z-index 20).
+  dock sits above it (z-index 20). The vignette (`.ar-layer::after`) exploits
+  the same thing: equal z-index to the video, so DOM order puts it over the
+  feed while the canvas still paints over both.
+- **The passthrough is dimmed, and it has to be.** The point cloud is additive
+  over the camera feed, so whatever the camera sees sets the floor the faintest
+  stars must clear. A lit room behind the selfie camera buries them — measured
+  on a bright feed, dimming halves mean screen luminance and stars that were
+  invisible become crisp. `.ar-video` carries a `data-facing` attribute so the
+  rear camera (pointed at a dark sky) gets a gentle `brightness(0.5)` and the
+  front one a hard `brightness(0.24) saturate(0.3)`. Keep the filters cheap:
+  no blur, which costs real time full-screen on a phone.
+- **CSS filters on the `<video>` do not affect `drawImage`.** The hand preview
+  reads raw pixels, so it stays bright while the full-screen passthrough is
+  dimmed — which is what lets you frame your hands in the preview without
+  turning the dimming off. Do not "fix" this by filtering the preview canvas.
 - `controls.minDistance` is 0.2, lowered from 5.0 so the Local Group (under
   1 Mpc) is reachable. `ARMode.MIN_DISTANCE` matches it for the same reason —
   at its old value of 5 Mpc, entering AR near Andromeda snapped the map back
