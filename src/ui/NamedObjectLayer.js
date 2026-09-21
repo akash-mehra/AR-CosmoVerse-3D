@@ -6,6 +6,8 @@ const MAX_LABELS = 14;
 const HIT_RADIUS_PX = 26;
 const LABEL_HEIGHT_PX = 24;
 const LABEL_GAP_PX = 6;
+// Length of the leader that lifts a label clear of its point (.named-label::after).
+const LABEL_LEADER_PX = 10;
 const DRAG_TOLERANCE_PX = 6;
 
 const OTYPE_LABELS = {
@@ -32,8 +34,9 @@ const OTYPE_LABELS = {
   SCG: 'Supercluster',
   GrG: 'Group of galaxies',
   CGG: 'Compact group of galaxies',
-  Void: 'Void',
-  PoG: 'Part of a galaxy'
+  vid: 'Void',
+  PoG: 'Part of a galaxy',
+  QSO_Candidate: 'Quasar candidate'
 };
 
 /** Cheap proxy for label width — measuring the DOM every frame would force a layout. */
@@ -60,6 +63,9 @@ export class NamedObjectLayer {
     this._eye = new THREE.Vector3();
     this._ndc = new THREE.Vector3();
     this._pointerDown = null;
+    // Rendered label rectangles, refreshed every layout pass so a click on the
+    // label selects the object it names.
+    this.labelHits = [];
 
     this.renderDOM();
     this.bindEvents();
@@ -189,6 +195,7 @@ export class NamedObjectLayer {
   /** Greedy declutter: highest weight first, skipping anything that would overlap an accepted label. */
   layoutLabels() {
     const placed = [];
+    this.labelHits.length = 0;
 
     for (const obj of this.candidates) {
       if (placed.length >= MAX_LABELS) break;
@@ -225,8 +232,17 @@ export class NamedObjectLayer {
         slot.object = obj;
       }
       slot.el.classList.toggle('selected', obj === this.selected);
-      slot.el.style.transform = `translate3d(${Math.round(obj.screenX)}px, ${Math.round(obj.screenY)}px, 0) translate(-50%, calc(-100% - 10px))`;
+      slot.el.style.transform = `translate3d(${Math.round(obj.screenX)}px, ${Math.round(obj.screenY)}px, 0) translate(-50%, calc(-100% - ${LABEL_LEADER_PX}px))`;
       slot.el.classList.add('visible');
+
+      const width = estimateLabelWidth(obj.label);
+      this.labelHits.push({
+        obj,
+        left: obj.screenX - width * 0.5,
+        right: obj.screenX + width * 0.5,
+        top: obj.screenY - LABEL_HEIGHT_PX - LABEL_LEADER_PX,
+        bottom: obj.screenY - LABEL_LEADER_PX
+      });
     });
   }
 
@@ -259,6 +275,14 @@ export class NamedObjectLayer {
   }
 
   hitTest(clientX, clientY) {
+    // The label is the visible affordance, so it takes the click before the
+    // point does — the two are a leader's length apart on screen.
+    for (const hit of this.labelHits) {
+      if (clientX >= hit.left && clientX <= hit.right && clientY >= hit.top && clientY <= hit.bottom) {
+        return hit.obj;
+      }
+    }
+
     let best = null;
     let bestDistance = HIT_RADIUS_PX;
 
