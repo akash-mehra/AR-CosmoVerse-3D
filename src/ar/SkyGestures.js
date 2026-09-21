@@ -43,8 +43,8 @@ export class SkyGestures {
     this.scene = scene;
     this.tracker = null;
     this.video = null;
-    this.ownsStream = false;
     this.stream = null;
+    this.preview = null;
     this.active = false;
 
     this.engaged = false;
@@ -71,25 +71,26 @@ export class SkyGestures {
   }
 
   /**
+   * Gestures only run inside AR, so the camera stream is always borrowed from
+   * ARMode rather than opened here.
+   *
    * @param target   object exposing orbitBy(dYaw, dPitch, scaleFactor)
-   * @param stream   an existing camera stream to share (AR owns one); omit to open one
-   * @param mirrored true for a user-facing feed, where handedness labels are flipped
+   * @param stream   ARMode's live passthrough stream
+   * @param mirrored true for a user-facing feed, which is read reversed
+   * @param preview  optional HandPreview to draw landmarks into
    */
-  async start({ target, stream = null, mirrored = true } = {}) {
+  async start({ target, stream, mirrored = false, preview = null } = {}) {
     if (this.active) return;
 
     const reason = SkyGestures.unsupportedReason();
     if (reason) throw new Error(reason);
+    if (!stream) throw new Error('Gesture control needs the AR camera. Enter AR first.');
 
     this.target = target ?? this.scene;
-    this.ownsStream = !stream;
+    this.stream = stream;
+    this.preview = preview;
 
     try {
-      this.stream = stream ?? await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'user' }, width: { ideal: 640 } },
-        audio: false
-      });
-
       // A detached element is enough — MediaPipe only needs decoded frames.
       this.video = document.createElement('video');
       this.video.playsInline = true;
@@ -110,18 +111,17 @@ export class SkyGestures {
     this.notify();
   }
 
-  /** Drops the tracker, the video element and any stream this instance opened. */
+  /** Drops the tracker and the video element. ARMode owns the stream itself. */
   releaseSources() {
     this.tracker?.close();
     this.tracker = null;
-
-    if (this.ownsStream) this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = null;
 
     if (this.video) {
       this.video.srcObject = null;
       this.video = null;
     }
+    this.preview?.hide();
   }
 
   /**
@@ -194,7 +194,20 @@ export class SkyGestures {
     }
     if (!reading) return;
 
-    const engaged = reading.anchorOpen && reading.driverOpen;
+    const engaged = !reading.partial && reading.anchorOpen && reading.driverOpen;
+    this.preview?.draw({
+      video: this.video,
+      hands: reading.hands,
+      engaged,
+      mirrored: this.tracker.mirrored
+    });
+
+    if (reading.partial) {
+      this.setEngaged(false);
+      this.lastDriver = null;
+      this.engageSpread = null;
+      return;
+    }
 
     if (!engaged) {
       this.setEngaged(false);

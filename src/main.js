@@ -28,30 +28,29 @@ document.addEventListener('DOMContentLoaded', () => {
   const arMode = new ARMode(appContainer, scene);
   hud.onEnterAR = () => arMode.enter();
 
-  // 3d. Two-handed sky control. In AR it shares the passthrough stream rather
-  //     than opening a second one; on desktop it opens its own user-facing feed.
+  // 3d. Two-handed sky control. AR only: it borrows the passthrough stream, and
+  //     its control lives in the AR dock because the HUD is hidden in AR.
   const gestures = new SkyGestures(scene);
-  gestures.onStateChange = (state) => hud.setGestureState(state);
-  arMode.onExit = () => { if (!gestures.ownsStream) gestures.stop(); };
-  // Flipping the AR camera swaps the stream under any gesture session borrowing it.
-  arMode.onCameraChange = (source) => { if (!gestures.ownsStream) gestures.useSource(source); };
+  gestures.onStateChange = (state) => arMode.setGestureState(state);
+  arMode.onExit = () => gestures.stop();
+  // Flipping the AR camera swaps the stream under the gesture session.
+  arMode.onCameraChange = (source) => gestures.useSource(source);
 
-  hud.onToggleGestures = async () => {
+  arMode.onToggleGestures = async () => {
     if (gestures.active) {
       gestures.stop();
       return;
     }
-    hud.setGestureState({ loading: true });
+    arMode.setGestureState({ loading: true });
     try {
       await gestures.start({
-        target: arMode.active ? arMode : scene,
-        stream: arMode.active ? arMode.stream : null,
-        // Follows the camera actually running, not the mode: AR can be flipped
-        // to the selfie camera, which is read mirrored like the desktop feed.
-        mirrored: arMode.active ? arMode.isMirrored : true
+        target: arMode,
+        stream: arMode.stream,
+        mirrored: arMode.isMirrored,
+        preview: arMode.handPreview
       });
     } catch (err) {
-      hud.setGestureState({ active: false });
+      arMode.setGestureState({ active: false });
       alert(`Gesture control unavailable: ${err?.message ?? err}`);
     }
   };

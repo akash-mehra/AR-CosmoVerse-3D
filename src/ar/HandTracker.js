@@ -95,7 +95,9 @@ export class HandTracker {
     const hands = result?.landmarks ?? [];
     if (hands.length < 2) {
       this.wasOpen = { Left: false, Right: false };
-      return null;
+      // Still worth reporting: the preview needs to show a lone hand so you can
+      // see the tracker working before the gesture can arm.
+      return { partial: true, hands: hands.map((points) => ({ points, role: 'driver' })) };
     }
 
     const anchorLabel = this.anchorLabel;
@@ -123,11 +125,14 @@ export class HandTracker {
     const driverCentre = this.toUserFrame(palmCentre(driver.points));
 
     return {
+      partial: false,
       anchorOpen: this.isOpen(anchorLabel, anchor.points),
       driverOpen: this.isOpen(anchorLabel === 'Left' ? 'Right' : 'Left', driver.points),
       driver: driverCentre,
       anchor: anchorCentre,
-      spread: Math.hypot(driverCentre.x - anchorCentre.x, driverCentre.y - anchorCentre.y)
+      spread: Math.hypot(driverCentre.x - anchorCentre.x, driverCentre.y - anchorCentre.y),
+      // Raw frame coordinates, for drawing over the camera image.
+      hands: [{ points: anchor.points, role: 'anchor' }, { points: driver.points, role: 'driver' }]
     };
   }
 
