@@ -12,35 +12,30 @@ npm run fetch:named  # rebuilds src/data/namedObjects.json from SIMBAD TAP
 
 ## Where the project stands
 
-Phases 1 and 2 are code complete and browser verified. Phase 3 is next and is
-blocked on a design conversation with the repo owner.
+Phases 1 and 2 are code complete and browser verified, and
+`src/data/namedObjects.json` now ships populated (1,371 objects: 198 local,
+1,173 deep). Phase 3 is next and is blocked on a design conversation with the
+repo owner.
 
-One open data item: **`src/data/namedObjects.json` still ships empty**
-(`"objects": []`). Labels therefore do not appear until it is populated. The
-ADQL in `scripts/fetchNamedObjects.mjs` has **never been executed** — it was
-written against a service that this environment's egress policy blocks
-(`simbad.cds.unistra.fr` returns 403 at the proxy CONNECT). Expect to iterate on
-it the first time it runs; likely trouble spots are the exact `basic.otype`
-short codes, whether the `ident` subquery avoids a TAP timeout, and
-`mesDistance` unit values. Check reachability first:
+**`simbad.cds.unistra.fr` is reachable.** An earlier note here claimed the
+egress policy blocked it with a 403 at the proxy CONNECT; that was wrong.
+`/capabilities` and `sim-tap/sync` both return 200, `npm run fetch:named` runs
+against the live service, and the "Load SIMBAD" button works. Check before
+assuming otherwise:
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' https://simbad.cds.unistra.fr/simbad/sim-tap/capabilities
 ```
 
-Still blocked → report it, do not route around it. On Node >= 22.21 behind the
-agent proxy, global `fetch` ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1`.
-
-Note that the app's runtime SIMBAD client (`simbadSource.js`, the "Load SIMBAD"
-button) hits the same blocked host, so it cannot be exercised here either. Use
-the CSV import path to test catalog swapping — it runs through the same
-`buildCatalog` and `HUD.loadCatalog` choke points.
+If it ever does return 403, report it rather than routing around it. On
+Node >= 22.21 behind the agent proxy, global `fetch` ignores `HTTPS_PROXY`
+unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 
 ## Roadmap
 
 | Phase | Scope | State |
 | --- | --- | --- |
-| 1 | Named objects: catalogue data, zoom-gated labels, detail card | Done, dataset still empty |
+| 1 | Named objects: catalogue data, zoom-gated labels, detail card | Done, dataset populated |
 | 2 | AR shell: camera passthrough + device-orientation look-around | Done |
 | 3 | Gesture control: hand tracking wired to existing scene methods | Blocked on a design discussion |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
@@ -125,13 +120,35 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   dominates. They carry `tier: "local"` and a measured `distMpc`, projected with
   `raDecDistToCartesian`. `LOCAL_MAX_MPC` (50) is both the placement boundary
   and the label-tier switch.
+- **SIMBAD CHAR columns come back space-padded.** `mesDistance.unit` is
+  `'Mpc '` / `'kpc '`, not `'Mpc'` / `'kpc'`. ADQL `unit IN ('Mpc','kpc')`
+  still matches because the server pads the literal, so the bug only shows up
+  in JavaScript — an untrimmed `row.unit === 'kpc'` silently read every kpc
+  distance as Mpc and placed Milky Way satellites 1000x too far out. Trim
+  before comparing.
+- **Object type codes are the short `otype` form, and some are lower case.**
+  A void is `vid`, not `Void`. Also note the SIMBAD hierarchy puts QSO under
+  Galaxy, so anything selecting galaxies has to subtract the quasar types
+  rather than assume they are disjoint. Seyferts and AGN are galaxies, not
+  quasars — only `QSO`/`BLL`/`Bla`/`QSO_Candidate` set `isQSO`.
+- **Boötes Void and the Sloan Great Wall cannot be labelled from SIMBAD.**
+  Boötes Void carries no redshift and no `mesDistance` row, and the Sloan Great
+  Wall's `otype` is `?`. The camera presets for them come from the hand-placed
+  constants in `sdssGenerator.js`, and no SIMBAD query will put a label there.
+- **A label's click target is its own rectangle, not its point.** The label
+  renders a leader's length (`LABEL_LEADER_PX`) above the point it names, well
+  outside `HIT_RADIUS_PX`, so `NamedObjectLayer.layoutLabels` records the
+  rendered rect in `labelHits` and `hitTest` checks those before falling back
+  to the point-radius search. Keep the transform and the recorded rect in step.
 - **`.glass-card` sets `transition: all 0.35s`.** Anything anchored to a moving
   world position must override it or it visibly lags the camera.
 - `.ar-layer` deliberately has no `z-index`, so it does not create a stacking
   context and the video can sit behind the canvas (z-index 0 vs 1) while the
   dock sits above it (z-index 20).
 - `controls.minDistance` is 0.2, lowered from 5.0 so the Local Group (under
-  1 Mpc) is reachable.
+  1 Mpc) is reachable. `ARMode.MIN_DISTANCE` matches it for the same reason —
+  at its old value of 5 Mpc, entering AR near Andromeda snapped the map back
+  out and the local tier was unreachable in AR.
 - The README still oversells: there is no spectrum visualizer, and the "object
   inspector" it describes only exists for the named subset.
 
@@ -154,6 +171,12 @@ the plot to complete (`controller.setInstantAll()`), widen the redshift filter,
 enter AR and assert on DOM state. `catalog` is kept pointing at the live catalog
 across swaps.
 
-To exercise the named-object UI while `namedObjects.json` is empty, write a
-temporary fixture over it, test, then restore the empty file. Do not commit
-hand-written objects into it: the data is supposed to come from SIMBAD.
+`namedObjects.json` is regenerated by `npm run fetch:named`, never edited by
+hand — the data is supposed to come from SIMBAD.
+
+Two traps when asserting on labels. `layoutLabels` re-runs every frame, so
+measure a label's position immediately before clicking it rather than reading
+all of them up front, and allow ~1.5s after moving the camera for OrbitControls
+damping to settle or the label set is still changing. A selection also opens the
+detail card over part of the screen, and `isInteractiveTarget` deliberately
+swallows clicks that land on it, so clear the selection between assertions.
