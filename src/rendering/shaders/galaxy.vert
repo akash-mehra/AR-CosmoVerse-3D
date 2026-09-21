@@ -14,6 +14,7 @@ uniform vec3 uHighlightCenter;
 uniform float uHighlightRadius;
 uniform float uHighlightActive;
 uniform float uPlotSpeed; // Galaxies per second
+uniform float uTrailAmount; // 0 = still sky, 1 = full star streaks
 
 varying float vColorParam;
 varying float vAlpha;
@@ -21,11 +22,13 @@ varying float vSpawnFlash;
 varying float vIsQSO;
 varying float vIsHighlighted;
 varying float vLandmarkId;
+varying float vTrail;
 
 void main() {
   vColorParam = aColorParam;
   vIsQSO = aIsQSO;
   vLandmarkId = aLandmarkId;
+  vTrail = uTrailAmount;
 
   // 1. One-by-One Plotting Filter
   if (aSpawnOrder > uPlotProgress) {
@@ -86,6 +89,10 @@ void main() {
     vAlpha = min(1.0, vAlpha * 1.8);
   }
 
-  gl_PointSize = clamp(ptSize, 1.5, 48.0);
+  // Grow the sprite so a streak has room to live inside it. The fragment stage
+  // scales its sampling back by the same factor, so the star keeps its width
+  // and only gains length.
+  float widen = 1.0 + uTrailAmount * 5.0;
+  gl_PointSize = clamp(ptSize * widen, 1.5, 48.0 * widen);
   gl_Position = projectionMatrix * mvPosition;
 }

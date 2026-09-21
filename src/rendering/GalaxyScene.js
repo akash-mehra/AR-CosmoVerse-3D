@@ -47,7 +47,10 @@ export class GalaxyScene {
       uHighlightActive: { value: 0.0 },
       uHighlightCenter: { value: new THREE.Vector3(0, 0, 0) },
       uHighlightRadius: { value: 40.0 },
-      uPlotSpeed: { value: 4500.0 }
+      uPlotSpeed: { value: 4500.0 },
+      // Star trails: how far a point stretches, and which way on screen.
+      uTrailAmount: { value: 0.0 },
+      uTrailDir: { value: new THREE.Vector2(1, 0) }
     };
 
     // 5. Build Earth origin & Coordinate axes
@@ -166,6 +169,30 @@ export class GalaxyScene {
 
     // Fit camera to local wedge (up to z=0.30 ~ 1200 Mpc)
     this.flyToLandmark('overview', true);
+  }
+
+  /**
+   * Swings the camera around the orbit target: the map turns past a viewer who
+   * stays put, which is what turning the sky looks like from the ground.
+   * Gesture and any other input drive this rather than touching the camera.
+   */
+  orbitBy(dYaw, dPitch, scaleFactor = 1.0) {
+    this._orbitOffset ??= new THREE.Vector3();
+    this._orbitSpherical ??= new THREE.Spherical();
+
+    this._orbitOffset.copy(this.camera.position).sub(this.controls.target);
+    this._orbitSpherical.setFromVector3(this._orbitOffset);
+    this._orbitSpherical.theta += dYaw;
+    // Stop just short of the poles, where azimuth becomes meaningless.
+    this._orbitSpherical.phi = THREE.MathUtils.clamp(this._orbitSpherical.phi + dPitch, 0.05, Math.PI - 0.05);
+    this._orbitSpherical.radius = THREE.MathUtils.clamp(
+      this._orbitSpherical.radius * scaleFactor,
+      this.controls.minDistance,
+      this.controls.maxDistance
+    );
+
+    this.camera.position.copy(this.controls.target).add(this._orbitOffset.setFromSpherical(this._orbitSpherical));
+    this.camera.lookAt(this.controls.target);
   }
 
   setPlottingOrder(orderKey) {

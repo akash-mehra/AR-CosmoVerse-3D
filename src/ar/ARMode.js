@@ -214,6 +214,24 @@ export class ARMode {
     this.scene.camera.position.copy(this.anchor).addScaledVector(this.anchorDirection, this.distance);
   }
 
+  /**
+   * Gesture control's hook. Device orientation still aims the view, so swinging
+   * the anchor direction moves the map around you rather than sliding the view
+   * off it — the map turns, your head does not.
+   */
+  orbitBy(dYaw, dPitch, scaleFactor = 1.0) {
+    this._gestureSpherical ??= new THREE.Spherical();
+
+    this._gestureSpherical.setFromVector3(this.anchorDirection);
+    this._gestureSpherical.theta += dYaw;
+    this._gestureSpherical.phi = THREE.MathUtils.clamp(this._gestureSpherical.phi + dPitch, 0.12, Math.PI - 0.12);
+    this._gestureSpherical.radius = 1;
+    this.anchorDirection.setFromSpherical(this._gestureSpherical).normalize();
+
+    this.distance = THREE.MathUtils.clamp(this.distance * scaleFactor, MIN_DISTANCE, MAX_DISTANCE);
+    this.applyDistance();
+  }
+
   /** Rotates the map's heading onto wherever the device is pointing right now. */
   recentre() {
     if (!this.hasOrientation) return;
@@ -277,5 +295,8 @@ export class ARMode {
     this.pinch = null;
     this.container.classList.remove('ar-active');
     this.root.classList.add('hidden');
+
+    // Anything sharing this stream (hand tracking) has just lost it.
+    this.onExit?.();
   }
 }

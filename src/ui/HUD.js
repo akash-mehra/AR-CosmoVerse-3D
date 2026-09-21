@@ -79,6 +79,9 @@ export class HUD {
           <button class="landmark-btn ar-btn" id="btn-enter-ar" title="View the map through your device camera">
             <span class="icon">📱</span> AR View
           </button>
+          <button class="landmark-btn gesture-btn" id="btn-gestures" type="button" aria-pressed="false" title="Turn the sky with your hands: hold your right palm open to anchor, sweep with the other">
+            <span class="icon">🖐️</span> Gestures Off
+          </button>
         </nav>
       </header>
 
@@ -373,6 +376,12 @@ export class HUD {
     // 13. AR mode
     document.getElementById('btn-enter-ar').addEventListener('click', () => this.onEnterAR?.());
 
+    this.gestureBtn = document.getElementById('btn-gestures');
+    this.gestureBtn.addEventListener('click', () => {
+      if (this.gestureBtn.disabled) return;
+      this.onToggleGestures?.();
+    });
+
     // 14. CSV modal
     const csvModal = document.getElementById('csv-modal');
     document.getElementById('btn-import-csv').addEventListener('click', () => {
@@ -449,6 +458,31 @@ export class HUD {
     button.title = this.simbadActive
       ? 'Switch the live SIMBAD catalog off and restore the previous dataset'
       : 'Load real galaxies & quasars from the SIMBAD TAP service (CDS Strasbourg)';
+  }
+
+  /**
+   * Paints the gesture button. 'loading' covers the one-off model download,
+   * 'engaged' means both hands are up and the sky is under their control.
+   */
+  setGestureState({ active = false, engaged = false, loading = false } = {}) {
+    const button = this.gestureBtn;
+    if (!button) return;
+
+    button.disabled = loading;
+    button.setAttribute('aria-pressed', String(active));
+    button.classList.toggle('engaged', engaged);
+
+    if (loading) {
+      button.innerHTML = '<span class="icon">🖐️</span> Loading hands…';
+      return;
+    }
+    if (engaged) {
+      button.innerHTML = '<span class="icon">✋</span> Turning Sky';
+      return;
+    }
+    button.innerHTML = active
+      ? '<span class="icon">🟢</span> Gestures On'
+      : '<span class="icon">🖐️</span> Gestures Off';
   }
 
   /** Mounts a catalog into the scene and controller, then relabels the header. */

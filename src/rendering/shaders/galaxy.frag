@@ -6,6 +6,9 @@ varying float vSpawnFlash;
 varying float vIsQSO;
 varying float vIsHighlighted;
 varying float vLandmarkId;
+varying float vTrail;
+
+uniform vec2 uTrailDir; // Screen-space direction the sky is travelling
 
 // Scientific SDSS redshift color palettes
 vec3 getGalaxyColor(float t) {
@@ -39,13 +42,25 @@ vec3 getQSOColor(float t) {
 
 void main() {
   vec2 coord = gl_PointCoord - vec2(0.5);
-  float distSq = dot(coord, coord);
-  float r = sqrt(distSq);
 
-  // Circular clip
-  if (distSq > 0.25) {
+  // Stay inside the sprite quad regardless of how far it was grown.
+  if (dot(coord, coord) > 0.25) {
     discard;
   }
+
+  // Draw the star as a capsule swept along the direction of travel: distance to
+  // a segment rather than to a point. The widen factor undoes the vertex stage's
+  // sprite growth, so at vTrail = 0 this is exactly the original round star.
+  float widen = 1.0 + vTrail * 5.0;
+  float halfLen = 0.45 * vTrail;
+  vec2 perp = vec2(-uTrailDir.y, uTrailDir.x);
+  float along = dot(coord, uTrailDir);
+  float across = dot(coord, perp);
+  float slide = clamp(along, -halfLen, halfLen);
+  vec2 offset = vec2((along - slide) * widen, across * widen);
+
+  float distSq = dot(offset, offset);
+  float r = sqrt(distSq);
 
   // Ultra-crisp Crystal Core + Smooth Diffuse Halo for Retina/4K clarity
   float core = exp(-distSq * 50.0);       // Sharp central kernel
@@ -79,8 +94,15 @@ void main() {
     shape = min(1.0, shape * (1.0 + vSpawnFlash * 3.0) + ring);
   }
 
-  // Tonemap-ready HDR output with boosted core brightness
-  float alpha = clamp(shape * vAlpha, 0.0, 1.0);
+  // Fade toward the tail so a streak reads as motion rather than a bar.
+  float tail = clamp(-along / max(halfLen, 1e-4), 0.0, 1.0);
+  shape *= mix(1.0, 1.0 - 0.55 * tail, vTrail);
+
+  // A stretched star spreads the same light over more pixels, and additive
+  // blending piles that up in the dense wedge. Dim by the square root of the
+  // stretch: enough to stop the core blowing out, not so much the trails vanish.
+  float spread = inversesqrt(widen);
+  float alpha = clamp(shape * vAlpha * spread, 0.0, 1.0);
   if (alpha < 0.008) {
     discard;
   }
