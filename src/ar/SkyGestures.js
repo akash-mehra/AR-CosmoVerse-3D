@@ -9,8 +9,10 @@ const PITCH_GAIN = Math.PI * 0.55;
 const SPREAD_GAIN = 1.4;
 
 // While the hands drive, velocity chases the hand. Once they drop, it coasts:
-// the sky keeps turning and winds down instead of stopping dead.
-const DRIVE_RESPONSE = 9.0;
+// the sky keeps turning and winds down instead of stopping dead. At 9 the
+// chase took ~110ms to reach most of the hand's speed, which read as lag on
+// top of the detection interval; the coast is what should feel slow, not this.
+const DRIVE_RESPONSE = 22.0;
 const RELEASE_DECAY = 0.62;
 const STOP_BELOW = 0.004;
 
@@ -194,11 +196,15 @@ export class SkyGestures {
     }
     if (!reading) return;
 
-    const engaged = !reading.partial && reading.anchorOpen && reading.driverOpen;
+    // Only the anchor palm has to be deliberately open. The driving hand just
+    // has to be present — it is sweeping, not posing, and requiring a second
+    // open palm squared the chance of failing to arm.
+    const engaged = !reading.partial && reading.anchorOpen;
     this.preview?.draw({
       video: this.video,
       hands: reading.hands,
       engaged,
+      openness: reading.openness,
       mirrored: this.tracker.mirrored
     });
 
