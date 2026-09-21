@@ -18,10 +18,12 @@ export class HandPreview {
     this.el.innerHTML = `
       <canvas class="ar-hand-canvas" width="192" height="144"></canvas>
       <span class="ar-hand-caption">no hands</span>
+      <span class="ar-hand-metrics"></span>
     `;
     this.canvas = this.el.querySelector('.ar-hand-canvas');
     this.ctx = this.canvas.getContext('2d');
     this.caption = this.el.querySelector('.ar-hand-caption');
+    this.metrics = this.el.querySelector('.ar-hand-metrics');
   }
 
   show() {
@@ -37,6 +39,7 @@ export class HandPreview {
     const { width, height } = this.canvas;
     this.ctx.clearRect(0, 0, width, height);
     this.caption.textContent = 'no hands';
+    this.metrics.textContent = '';
     this.el.classList.remove('engaged');
   }
 
@@ -47,8 +50,12 @@ export class HandPreview {
    * @param openness the anchor hand's measured openness, shown against the
    *   threshold so a palm that will not arm says why instead of just failing
    * @param mirrored selfie feed, drawn flipped to match what the user sees
+   * @param gapMs    measured milliseconds between the last two readings
+   * @param demand   rad/s the hand is asking for
+   * @param speed    rad/s the sky is actually turning
    */
-  draw({ video, hands = [], engaged = false, openness = 0, mirrored = false }) {
+  draw({ video, hands = [], engaged = false, openness = 0, mirrored = false,
+         gapMs = null, demand = 0, speed = 0 }) {
     const { ctx, canvas } = this;
     const { width, height } = canvas;
 
@@ -73,6 +80,12 @@ export class HandPreview {
     } else {
       this.caption.textContent = hands.length === 1 ? 'need both hands' : 'no hands';
     }
+
+    // Detection gap, what the hand is demanding, and what the sky is doing.
+    // Tuning without these three is guesswork.
+    this.metrics.textContent = gapMs
+      ? `${gapMs}ms  ask ${demand.toFixed(1)}  sky ${speed.toFixed(1)}`
+      : '';
   }
 
   /** Covers the box with the frame rather than letting the aspect squash it. */
