@@ -130,8 +130,8 @@ src/
   rendering/MilkyWayModel.js Procedural Milky Way point model at the centre
   solar/MilkyWayPortal.js    Easter-egg button, warp veil, galaxy <-> Solar System
   solar/SolarSystem.js       Lazy-loaded: Sun, planets, rings, stars, labels
-public/textures/solar/       Planet maps (CC BY 4.0, see CREDITS.md there)
   controller/PlottingController.js  Progressive "plot one by one" engine
+public/textures/solar/       Planet maps (CC BY 4.0, see CREDITS.md there)
 ```
 
 Two catalog builders feed the same GPU buffers: `generateSDSSCatalog` makes the
