@@ -10,7 +10,7 @@ const LABEL_GAP_PX = 6;
 const LABEL_LEADER_PX = 10;
 const DRAG_TOLERANCE_PX = 6;
 
-const OTYPE_LABELS = {
+export const OTYPE_LABELS = {
   G: 'Galaxy',
   GiC: 'Galaxy in cluster',
   GiG: 'Galaxy in group',
@@ -42,8 +42,11 @@ const OTYPE_LABELS = {
 /** Cheap proxy for label width — measuring the DOM every frame would force a layout. */
 const estimateLabelWidth = (label) => label.length * 7 + 34;
 
-const formatDistance = (mpc) => (mpc >= 1000 ? `${(mpc / 1000).toFixed(2)} Gpc` : `${mpc.toFixed(1)} Mpc`);
-const formatLookback = (gyr) => (gyr < 0.01 ? `${(gyr * 1000).toFixed(1)} Myr` : `${gyr.toFixed(2)} Gyr`);
+// Satellites and the Milky Way itself sit well under 0.1 Mpc, which "0.0 Mpc" hid.
+export const formatDistance = (mpc) => (mpc >= 1000 ? `${(mpc / 1000).toFixed(2)} Gpc`
+  : mpc >= 0.1 ? `${mpc.toFixed(1)} Mpc` : `${(mpc * 1000).toFixed(1)} kpc`);
+const formatLookback = (gyr) => (gyr >= 0.01 ? `${gyr.toFixed(2)} Gyr`
+  : gyr >= 0.001 ? `${(gyr * 1000).toFixed(1)} Myr` : `${(gyr * 1e6).toFixed(1)} kyr`);
 const formatRedshift = (z) => (Number.isFinite(z) ? `z = ${Math.abs(z) < 0.01 ? z.toFixed(5) : z.toFixed(4)}` : 'not measured');
 
 /**
@@ -66,6 +69,7 @@ export class NamedObjectLayer {
     // Rendered label rectangles, refreshed every layout pass so a click on the
     // label selects the object it names.
     this.labelHits = [];
+    this.suspended = false;
 
     this.renderDOM();
     this.bindEvents();
@@ -112,14 +116,7 @@ export class NamedObjectLayer {
   bindEvents() {
     this.card.querySelector('.named-card-close').addEventListener('click', () => this.clearSelection());
     this.card.querySelector('.named-card-fly').addEventListener('click', () => {
-      if (!this.selected) return;
-      const { x, y, z } = this.selected.position;
-      const target = new THREE.Vector3(x, y, z);
-      const offset = Math.max(this.selected.distanceMpc * 0.08, 12);
-      // AR aims the camera from the device, so it moves the map instead.
-      if (this.onFlyTo?.(target, offset)) return;
-      const camPos = target.clone().add(new THREE.Vector3(offset, offset * 0.6, offset));
-      this.scene.smoothFlyTo(camPos, target);
+      if (this.selected) this.flyTo(this.selected);
     });
 
     // Pointer events, so a tap selects on touch screens as a click does with a
@@ -136,13 +133,24 @@ export class NamedObjectLayer {
     window.addEventListener('pointerup', (e) => {
       const down = this._pointerDown;
       this._pointerDown = null;
-      if (!down || !e.isPrimary) return;
+      // Inside the Solar System the labels are hidden and must not take clicks.
+      if (!down || !e.isPrimary || this.suspended) return;
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) >= DRAG_TOLERANCE_PX) return;
 
       const hit = this.hitTest(e.clientX, e.clientY);
       if (hit) this.select(hit);
       else this.clearSelection();
     });
+  }
+
+  flyTo(obj) {
+    const { x, y, z } = obj.position;
+    const target = new THREE.Vector3(x, y, z);
+    const offset = obj.viewDistance ?? Math.max(obj.distanceMpc * 0.08, 12);
+    // AR aims the camera from the device, so it moves the map instead.
+    if (this.onFlyTo?.(target, offset)) return;
+    const camPos = target.clone().add(new THREE.Vector3(offset, offset * 0.6, offset));
+    this.scene.smoothFlyTo(camPos, target);
   }
 
   isInteractiveTarget(target) {
@@ -324,7 +332,7 @@ export class NamedObjectLayer {
     };
 
     set('.named-card-title', obj.label);
-    set('.named-card-type', OTYPE_LABELS[obj.otype] ?? obj.otype);
+    set('.named-card-type', obj.typeLabel ?? OTYPE_LABELS[obj.otype] ?? obj.otype);
     set('.named-card-ids', obj.ids.length ? obj.ids.join(' · ') : obj.mainId);
     set('.named-card-coords', `${obj.ra.toFixed(3)}° / ${obj.dec >= 0 ? '+' : ''}${obj.dec.toFixed(3)}°`);
     set('.named-card-z', formatRedshift(obj.z));
@@ -332,9 +340,9 @@ export class NamedObjectLayer {
     set('.named-card-lookback', formatLookback(lookbackGyr));
     set(
       '.named-card-note',
-      obj.tier === 'local'
+      obj.note ?? (obj.tier === 'local'
         ? 'Placed by measured distance — too close for redshift to give one.'
-        : 'Comoving distance from redshift, Planck 2018 cosmology.'
+        : 'Comoving distance from redshift, Planck 2018 cosmology.')
     );
 
     this.card.classList.remove('hidden');

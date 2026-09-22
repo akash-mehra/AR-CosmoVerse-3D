@@ -1,6 +1,8 @@
 import { computeRedshiftHistogram, importCustomSDSSData, MAX_CATALOG_Z } from '../data/sdssGenerator.js';
 import { fetchSimbadCatalog } from '../data/simbadSource.js';
 import { notify } from './notify.js';
+import { searchEntries } from './search.js';
+import { formatDistance, OTYPE_LABELS } from './NamedObjectLayer.js';
 
 const SIMBAD_LABEL = 'SIMBAD';
 const MAX_CSV_BYTES = 50 * 1024 * 1024;
@@ -8,6 +10,13 @@ const MAX_CSV_BYTES = 50 * 1024 * 1024;
 const COMPACT_QUERY = '(max-width: 1024px), (orientation: portrait)';
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+// Hand-placed structures with camera presets but no catalogue entry, so the
+// search reaches them too.
+const LANDMARK_ENTRIES = [
+  { label: 'Boötes Void', ids: ['The Great Nothing'], typeLabel: 'Void', landmark: 'bootes', weight: 100 },
+  { label: 'Sloan Great Wall', ids: ['SGW'], typeLabel: 'Galaxy filament', landmark: 'sloan_wall', weight: 100 }
+];
 
 export class HUD {
   constructor(container, controller, scene) {
@@ -48,6 +57,9 @@ export class HUD {
           </div>
         </div>
         <nav class="landmark-nav">
+          <button class="landmark-btn search-btn" id="btn-search" type="button" aria-expanded="false" aria-controls="search-panel" title="Find a galaxy, cluster or quasar by name (/)">
+            <span class="icon">🔍</span> Search
+          </button>
           <button class="landmark-btn" data-landmark="bootes" title="Focus on 200 Million Light-Year Boötes Void">
             <span class="icon">🕳️</span> Boötes Void
           </button>
@@ -85,6 +97,12 @@ export class HUD {
             <span class="icon">📱</span> AR View
           </button>
         </nav>
+        <div class="search-panel" id="search-panel" hidden>
+          <input type="search" id="search-input" class="glass-input search-input" placeholder="Name or catalogue ID — Milky Way, M31, Coma, 3C 273…"
+            autocomplete="off" spellcheck="false" role="combobox" aria-label="Search named objects"
+            aria-autocomplete="list" aria-expanded="false" aria-controls="search-results" />
+          <ul class="search-results" id="search-results" role="listbox" aria-label="Matches"></ul>
+        </div>
       </header>
 
       <!-- MINIMAL RECORDING DOCK (VISIBLE WHEN HUD IS HIDDEN) -->
@@ -137,7 +155,7 @@ export class HUD {
           </div>
           <div class="shortcut-tips">
             <span>Drag to orbit • Scroll to zoom • Double-click to fly in (Shift: out)</span>
-            <span>[Space] Play • [R] Reset • [F] Fullscreen • [H] Hide UI • [O] Orbit • [T] Alpha BG</span>
+            <span>[/] Search • [Space] Play • [R] Reset • [F] Fullscreen • [H] Hide UI • [O] Orbit • [T] Alpha BG</span>
           </div>
         </div>
         </details>
@@ -324,6 +342,128 @@ export class HUD {
     // 12. Live SIMBAD catalog push button
     this.simbadBtn = $('btn-load-simbad');
     this.simbadBtn.addEventListener('click', () => this.toggleSimbad());
+
+    // 13. Search
+    this.bindSearch();
+  }
+
+  bindSearch() {
+    const button = document.getElementById('btn-search');
+    const panel = document.getElementById('search-panel');
+    const input = document.getElementById('search-input');
+    const list = document.getElementById('search-results');
+    this.searchResults = [];
+    this.searchActive = 0;
+
+    button.addEventListener('click', () => (panel.hidden ? this.openSearch() : this.closeSearch()));
+
+    input.addEventListener('input', () => {
+      this.searchActive = 0;
+      this.renderSearchResults(input.value);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      const count = this.searchResults.length;
+      if (e.key === 'ArrowDown' && count) {
+        e.preventDefault();
+        this.searchActive = (this.searchActive + 1) % count;
+        this.renderSearchResults(input.value);
+      } else if (e.key === 'ArrowUp' && count) {
+        e.preventDefault();
+        this.searchActive = (this.searchActive - 1 + count) % count;
+        this.renderSearchResults(input.value);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const entry = this.searchResults[this.searchActive];
+        if (entry) this.pickSearchResult(entry);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.closeSearch();
+        button.focus();
+      }
+    });
+
+    // pointerdown, not click: picking must win over the input losing focus.
+    list.addEventListener('pointerdown', (e) => {
+      const item = e.target.closest('[data-index]');
+      if (!item) return;
+      e.preventDefault();
+      this.pickSearchResult(this.searchResults[Number(item.dataset.index)]);
+    });
+  }
+
+  openSearch() {
+    const panel = document.getElementById('search-panel');
+    const input = document.getElementById('search-input');
+    panel.hidden = false;
+    document.getElementById('btn-search').setAttribute('aria-expanded', 'true');
+    input.focus();
+    input.select();
+    this.renderSearchResults(input.value);
+  }
+
+  closeSearch() {
+    document.getElementById('search-panel').hidden = true;
+    document.getElementById('btn-search').setAttribute('aria-expanded', 'false');
+    document.getElementById('search-input').setAttribute('aria-expanded', 'false');
+  }
+
+  renderSearchResults(query) {
+    const input = document.getElementById('search-input');
+    const list = document.getElementById('search-results');
+    const entries = [...(this.searchObjects?.() ?? []), ...LANDMARK_ENTRIES];
+    this.searchResults = searchEntries(entries, query);
+    list.replaceChildren();
+    input.removeAttribute('aria-activedescendant');
+
+    if (!query.trim()) {
+      input.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    if (!this.searchResults.length) {
+      const empty = document.createElement('li');
+      empty.className = 'search-empty';
+      empty.textContent = 'No named object matches that.';
+      list.append(empty);
+      input.setAttribute('aria-expanded', 'false');
+      return;
+    }
+
+    this.searchResults.forEach((entry, i) => {
+      const item = document.createElement('li');
+      item.className = 'search-result';
+      item.id = `search-result-${i}`;
+      item.dataset.index = String(i);
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', String(i === this.searchActive));
+      const name = document.createElement('span');
+      name.className = 'search-result-name';
+      name.textContent = entry.label;
+      const meta = document.createElement('span');
+      meta.className = 'search-result-meta';
+      meta.textContent = entry.landmark
+        ? entry.typeLabel
+        : `${entry.typeLabel ?? OTYPE_LABELS[entry.otype] ?? entry.otype} · ${formatDistance(entry.distanceMpc)}`;
+      item.append(name, meta);
+      list.append(item);
+    });
+    input.setAttribute('aria-expanded', 'true');
+    input.setAttribute('aria-activedescendant', `search-result-${this.searchActive}`);
+  }
+
+  pickSearchResult(entry) {
+    this.closeSearch();
+    if (entry.landmark) {
+      this.flyToLandmark(entry.landmark);
+      return;
+    }
+    // Quasars sit far outside the default 0–0.3 slice; a hidden point is not
+    // much of an answer.
+    if (entry.filterZ < this.minZFilter || entry.filterZ > this.maxZFilter) {
+      this.setRedshiftFilter(Math.min(this.minZFilter, entry.filterZ), Math.max(this.maxZFilter, entry.filterZ));
+    }
+    this.landmarkBtns.forEach(b => b.classList.remove('active'));
+    this.onSearchPick?.(entry);
   }
 
   bindCsvDialog() {
@@ -503,7 +643,7 @@ export class HUD {
     // A single click is left to the named-object layer, which selects labels.
     window.addEventListener('dblclick', e => {
       if (e.target !== this.scene.renderer.domElement) return;
-      if (this.container.classList.contains('ar-active')) return;
+      if (this.container.matches('.ar-active, .solar-active')) return;
       e.preventDefault();
       const direction = e.shiftKey || e.altKey ? 'out' : 'in';
       this.scene.zoomAtScreenPoint(e.clientX, e.clientY, direction);
@@ -517,7 +657,8 @@ export class HUD {
       o: () => this.toggleOrbit(),
       t: () => this.toggleTransparent(),
       r: () => this.controller.reset(),
-      ' ': () => this.controller.togglePlay()
+      ' ': () => this.controller.togglePlay(),
+      '/': () => this.openSearch()
     };
 
     window.addEventListener('keydown', e => {
@@ -526,8 +667,9 @@ export class HUD {
       if (e.target.closest?.('input, textarea, select, dialog')) return;
       // A focused button handles its own Space; toggling here as well undid it.
       if (e.key === ' ' && e.target.closest?.('button')) return;
-      // The HUD is hidden in AR, so its shortcuts would act on nothing visible.
-      if (this.container.classList.contains('ar-active')) return;
+      // The HUD is hidden in AR and in the Solar System, so its shortcuts would
+      // act on nothing visible.
+      if (this.container.matches('.ar-active, .solar-active')) return;
 
       const action = actions[e.key.toLowerCase()];
       if (!action) return;

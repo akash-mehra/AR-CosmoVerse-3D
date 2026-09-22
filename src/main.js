@@ -7,6 +7,7 @@ import { ARMode } from './ar/ARMode.js';
 import { SkyGestures } from './ar/SkyGestures.js';
 import { generateSDSSCatalog } from './data/sdssGenerator.js';
 import { notify } from './ui/notify.js';
+import { MilkyWayPortal } from './solar/MilkyWayPortal.js';
 
 const bootScreen = document.getElementById('boot-screen');
 
@@ -41,6 +42,16 @@ function start() {
 
   // 3b. Labels & detail card for real catalogued objects
   const namedLayer = new NamedObjectLayer(appContainer, scene);
+
+  // Search hands back a named object: select it, widen nothing else, fly there.
+  hud.searchObjects = () => namedLayer.objects;
+  hud.onSearchPick = (obj) => {
+    namedLayer.select(obj);
+    namedLayer.flyTo(obj);
+  };
+
+  // 3b'. Easter egg: zoom into the Milky Way and a way into the Solar System opens.
+  const portal = new MilkyWayPortal(appContainer, scene, namedLayer);
 
   // 3c. Camera passthrough AR shell
   const arMode = new ARMode(appContainer, scene);
@@ -103,6 +114,7 @@ function start() {
     namedLayer,
     arMode,
     gestures,
+    portal,
     catalog
   };
 
@@ -119,17 +131,25 @@ function start() {
     const deltaTime = Math.min(deltaMs * 0.001, 0.1); // Clamp max delta to 100ms
 
     try {
-      // Advance one-by-one plotting engine
-      controller.update(deltaTime);
+      if (portal.active) {
+        // Inside the Solar System: the galaxy map is paused, not drawn.
+        portal.update(deltaTime);
+      } else {
+        // Advance one-by-one plotting engine
+        controller.update(deltaTime);
 
-      // Hands steer the sky before the frame is drawn
-      gestures.update(deltaTime);
+        // Hands steer the sky before the frame is drawn
+        gestures.update(deltaTime);
 
-      // Render Three.js scene & update camera damping/flight
-      scene.update(deltaTime);
+        // Render Three.js scene & update camera damping/flight
+        scene.update(deltaTime);
 
-      // Reproject named object labels against the camera just rendered
-      namedLayer.update();
+        // Reproject named object labels against the camera just rendered
+        namedLayer.update();
+
+        // Offer the way into the Milky Way once the camera is close enough
+        portal.update(deltaTime);
+      }
     } catch (err) {
       // A frame that throws will throw every frame; stop and say so rather
       // than flood the console behind a frozen picture.
