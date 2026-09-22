@@ -333,15 +333,13 @@ boundary that reports on the boot screen rather than leaving a black page.
   out 16x.
 - **Never clear `wasOpen` on a partial reading.** Detection drops to one hand
   constantly, and resetting hysteresis there sends an already-open palm back to
-  the strict `OPEN_ENTER`, which reads as the gesture refusing to arm. Only the
-  constructor and `close()` reset it.
+  the strict `OPEN_ENTER`, which reads as the gesture refusing to arm. Only
+  `reset()` clears it, and only between gesture sessions (start, stop, close).
 - **`uTrailAmount` at 0 must reproduce the original round star exactly.** The
   vertex stage grows the sprite by `1 + uTrailAmount * 5` and the fragment stage
   divides its sampling by the same factor, so the star keeps its width and only
   gains length. Additive blending piles stretched sprites up in the dense wedge,
   which is why alpha is scaled by `inversesqrt(widen)`.
-- The README still oversells: there is no spectrum visualizer, and the "object
-  inspector" it describes only exists for the named subset.
 
 ## Verifying UI changes
 
