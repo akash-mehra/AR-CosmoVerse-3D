@@ -1,5 +1,6 @@
 import catalog from './namedObjects.json';
 import { comovingDistanceMpc, raDecDistToCartesian, raDecZToCartesian } from '../cosmology/planck18.js';
+import { milkyWayObject } from './milkyWay.js';
 
 export const LOCAL_MAX_MPC = catalog.localMaxMpc ?? 50;
 
@@ -31,10 +32,11 @@ function project(obj) {
 /**
  * Real catalogued objects, projected into the same Mpc coordinate frame as the
  * synthetic cloud. Nearby objects are placed by measured distance; everything
- * else by redshift through the Planck 2018 model.
+ * else by redshift through the Planck 2018 model. The Milky Way, which SIMBAD
+ * cannot place, is appended from the galactic frame.
  */
 export function getNamedObjects() {
-  return (catalog.objects ?? [])
+  const objects = (catalog.objects ?? [])
     .map((obj) => {
       const usableDistance = obj.tier === 'local'
         ? Number.isFinite(obj.distMpc) && obj.distMpc > 0
@@ -50,4 +52,6 @@ export function getNamedObjects() {
       };
     })
     .filter(Boolean);
+  objects.push(milkyWayObject());
+  return objects;
 }

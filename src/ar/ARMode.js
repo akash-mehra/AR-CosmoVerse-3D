@@ -10,9 +10,9 @@ const SCREEN_AXIS = new THREE.Vector3(0, 0, 1);
 // Turns the device frame into a camera frame looking out of the back of the phone.
 const DEVICE_TO_CAMERA = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
 
-// Matches GalaxyScene's controls.minDistance so the Local Group (under 1 Mpc)
-// stays reachable in AR instead of being clamped back out to 5 Mpc.
-const MIN_DISTANCE = 0.2;
+// Matches GalaxyScene's controls.minDistance so the Milky Way and the Local
+// Group stay reachable in AR instead of being clamped back out.
+const MIN_DISTANCE = 0.03;
 const MAX_DISTANCE = 18000;
 const ORIENTATION_PROBE_MS = 1200;
 

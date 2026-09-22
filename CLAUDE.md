@@ -13,7 +13,9 @@ npm run fetch:named  # rebuilds src/data/namedObjects.json from SIMBAD TAP
 ## Where the project stands
 
 Phases 1 to 3 are code complete, and `src/data/namedObjects.json` ships
-populated (1,371 objects: 198 local, 1,173 deep). Phase 4 is next.
+populated (1,371 objects: 198 local, 1,173 deep). Phase 3a (the Milky Way and
+the Solar System) has its base in place and will get more detail; Phase 4
+comes after it.
 
 Phase 3's gesture vocabulary has been decided and built, so it is no longer an
 open question: the right palm held open anchors, the other hand sweeps, and the
@@ -41,7 +43,19 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 1 | Named objects: catalogue data, zoom-gated labels, detail card | Done, dataset populated |
 | 2 | AR shell: camera passthrough + device-orientation look-around | Done |
 | 3 | Gesture control: two-handed sky turning, inertia, star trails | Done, untested on a real device |
+| 3a | Milky Way model, name search, Solar System easter egg | Base done; more detail next |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
+
+**Phase 3a notes.** The Milky Way was missing — only a 1 Mpc "Earth" sphere at
+the origin, while its satellites (LMC, SMC, Sgr dSph) were all labelled. It is
+now a procedural barred spiral in the true galactic plane around the true
+centre, with the Sun (the origin) in the disc 8.2 kpc out, plus a named entry
+so it labels, searches and opens a card. Zooming within ~0.12 Mpc of it shows
+"Enter the Milky Way", which swaps the map for a Solar System: the Sun, eight
+planets at today's positions on their real periods, inclinations and tilts,
+real texture maps, Saturn's rings, and a starfield with the Milky Way band.
+Still to do in 3a: moons, planet detail cards, a time control, and making the
+Solar System reachable from AR.
 
 **Phase 3 notes.** Modelled on the Moon Knight sky-turning shot the owner
 supplied: open palms raised, the celestial sphere swinging past a stationary
@@ -111,6 +125,12 @@ src/
   ui/HUD.js                  Glassmorphic panels, histogram, CSV/SIMBAD loading
   ui/NamedObjectLayer.js     Label projection, declutter, picking, detail card
   ui/notify.js               Non-blocking notices; use instead of alert()
+  ui/search.js               Name/ID matching behind the header's Search
+  data/milkyWay.js           Galactic frame constants and the Milky Way entry
+  rendering/MilkyWayModel.js Procedural Milky Way point model at the centre
+  solar/MilkyWayPortal.js    Easter-egg button, warp veil, galaxy <-> Solar System
+  solar/SolarSystem.js       Lazy-loaded: Sun, planets, rings, stars, labels
+public/textures/solar/       Planet maps (CC BY 4.0, see CREDITS.md there)
   controller/PlottingController.js  Progressive "plot one by one" engine
 ```
 
@@ -206,12 +226,43 @@ boundary that reports on the boot screen rather than leaving a black page.
   reads raw pixels, so it stays bright while the full-screen passthrough is
   dimmed — which is what lets you frame your hands in the preview without
   turning the dimming off. Do not "fix" this by filtering the preview canvas.
-- `controls.minDistance` is 0.2, lowered from 5.0 so the Local Group (under
-  1 Mpc) is reachable, and the camera's near plane is 0.02 to match — at its old
-  1.0 the Local Group was clipped exactly when you flew in to see it. The
-  coordinate rings do not write depth, because depth is coarse that far out. `ARMode.MIN_DISTANCE` matches it for the same reason —
-  at its old value of 5 Mpc, entering AR near Andromeda snapped the map back
-  out and the local tier was unreachable in AR.
+- `controls.minDistance` is 0.03 Mpc, lowered in steps from 5.0 so first the
+  Local Group and then the Milky Way (0.03 Mpc across) can fill the view, and
+  the camera's near plane is 0.002 to match — each time it lagged, whatever you
+  flew in to see was clipped. The coordinate rings do not write depth, because
+  depth is coarse that far out. `ARMode.MIN_DISTANCE` matches it for the same
+  reason: at its old value of 5 Mpc, entering AR near Andromeda snapped the map
+  back out.
+- **The Milky Way is hand-placed, like the Boötes Void.** SIMBAD gives it no
+  redshift and no distance, so `milkyWayObject()` in `data/milkyWay.js` builds
+  its entry from the galactic frame and `getNamedObjects` appends it; do not
+  add it to `namedObjects.json`. Entries may carry `typeLabel`, `note` and
+  `viewDistance` to override the card text and the fly-to distance.
+- **Scale-dependent furniture updates every frame** (`updateLocalScale`). The
+  Earth beacon is a 1 Mpc sphere that swallowed the whole Milky Way up close,
+  so it now shrinks with the camera's distance to stay a dot. The Milky Way
+  model fades out beyond ~4 Mpc and is then not drawn: far away its 42k
+  additive points collapse onto one pixel and glare.
+- **The frame loop draws the galaxy map or the Solar System, never both.** The
+  Solar System borrows the renderer and canvas but has its own scene, camera
+  and OrbitControls. On entry `MilkyWayPortal` disables the map's controls,
+  sets `namedLayer.suspended` (hidden labels must not take clicks) and adds
+  `.solar-active`, which hides the HUD; HUD shortcuts and double-click zoom
+  ignore input under it as they do in AR. Esc or the Back button leaves.
+- **The Solar System is compressed, on purpose and by power laws**
+  (`displayRadius`, `displayOrbit`, `spinSeconds`): at true scale every planet
+  is sub-pixel. Positions are not invented — planets start at their mean
+  longitudes for today from J2000 elements and keep real relative periods.
+  Retrograde spin is expressed by the tilt (Venus 177°, Uranus 98°), never by a
+  negative day as well, which would cancel out. Saturn's rings are unlit: the
+  Sun grazes the ring plane and a lit ring came out black.
+- **Planet maps are CC BY 4.0 and must stay credited** — in the Solar System's
+  corner and in `public/textures/solar/CREDITS.md`. They came from Wikimedia
+  Commons, not solarsystemscope.com, which serves a captcha to scripts (do not
+  route around it). Commons' API rate-limits this sandbox's IP; direct
+  `upload.wikimedia.org` paths are derived from the MD5 of the file name. Any
+  map that is missing falls back to a procedural surface, so a 404 degrades
+  rather than breaks. The starfield and Saturn's rings are procedural anyway.
 - **Anything that moves the camera around the map goes through `orbitBy`.**
   `GalaxyScene.orbitBy(dYaw, dPitch, scaleFactor)` swings the camera around the
   orbit target; `ARMode.orbitBy` has the same signature but swings the anchor
@@ -355,7 +406,7 @@ on an interval — `ARMode` only attaches its listener after `getUserMedia`
 resolves, so a single dispatch gets missed.
 
 The app exposes `window.__SDSS_APP__` (`scene`, `controller`, `hud`,
-`namedLayer`, `arMode`, `catalog`), which is enough to place the camera, force
+`namedLayer`, `arMode`, `gestures`, `portal`, `catalog`), which is enough to place the camera, force
 the plot to complete (`controller.setInstantAll()`), widen the redshift filter,
 enter AR and assert on DOM state. `catalog` is kept pointing at the live catalog
 across swaps.
@@ -378,6 +429,11 @@ and `uTrailDir` directly and screenshot. The hand preview draws from whatever
 you hand it: `arMode.handPreview.draw({ video, hands: [{points, role}], engaged,
 mirrored })` with 21 synthetic normalised points per hand renders the full
 skeleton without MediaPipe.
+
+To reach the Solar System, search "Milky Way" (it flies to 0.077 Mpc, inside
+the portal's 0.12 range) and click `.portal-btn`; `portal.active` flips once the
+textures load. Solar labels ride their planets, so Playwright's stability check
+never settles on them — click them through `page.evaluate`.
 
 Two traps when asserting on labels. `layoutLabels` re-runs every frame, so
 measure a label's position immediately before clicking it rather than reading
