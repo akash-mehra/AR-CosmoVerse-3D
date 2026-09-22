@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import galaxyVert from './shaders/galaxy.vert?raw';
 import galaxyFrag from './shaders/galaxy.frag?raw';
 import { BOOTES_VOID_CENTER, SLOAN_GREAT_WALL } from '../data/sdssGenerator.js';
+import { MilkyWayModel } from './MilkyWayModel.js';
 
 // Birth flash length: long enough to see one galaxy land in slow motion, short
 // enough not to smear the whole frontier at full speed.
@@ -30,9 +31,9 @@ export class GalaxyScene {
 
     // 2. Scene & Camera
     this.scene = new THREE.Scene();
-    // Near has to sit well inside controls.minDistance (0.2 Mpc), or the Local
-    // Group is clipped away exactly when you fly in to look at it.
-    this.camera = new THREE.PerspectiveCamera(50, this.width / this.height, 0.02, 30000.0);
+    // Near has to sit well inside controls.minDistance, or the Milky Way and
+    // the Local Group are clipped away exactly when you fly in to look at them.
+    this.camera = new THREE.PerspectiveCamera(50, this.width / this.height, 0.002, 30000.0);
     this.camera.position.set(200, 500, 1350);
 
     // 3. Controls
@@ -40,7 +41,8 @@ export class GalaxyScene {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
     this.controls.maxDistance = 20000.0;
-    this.controls.minDistance = 0.2; // Local Group galaxies sit under 1 Mpc from origin
+    // 30 kpc: close enough for the Milky Way (30 kpc across) to fill the view.
+    this.controls.minDistance = 0.03;
     // Scrolling heads for what is under the pointer, like every map.
     this.controls.zoomToCursor = true;
     this.controls.target.set(0, 0, 0);
@@ -65,6 +67,8 @@ export class GalaxyScene {
 
     // 5. Build Earth origin & Coordinate axes
     this.createCosmicLandmarkBeacons();
+    this.milkyWay = new MilkyWayModel();
+    this.scene.add(this.milkyWay.points);
 
     // 6. Camera flight & Cinematic Auto-Orbit state
     this.cameraFlight = null;
@@ -399,12 +403,24 @@ export class GalaxyScene {
     }
   }
 
+  /**
+   * Scale-dependent furniture. The Earth beacon is a 1 Mpc sphere, a dot at
+   * survey scale but big enough to swallow the whole Milky Way (0.03 Mpc) up
+   * close, so it shrinks with the camera's distance to stay a marker.
+   */
+  updateLocalScale() {
+    const toEarth = this.camera.position.length();
+    this.earthMarker.scale.setScalar(THREE.MathUtils.clamp(toEarth * 0.004, 0.00008, 1));
+    this.milkyWay.update(this.camera);
+  }
+
   update(deltaTime) {
     this.uniforms.uTime.value += deltaTime;
 
     // AR drives the camera itself; OrbitControls and camera flights would fight it.
     if (this.cameraDriver) {
       this.cameraDriver(deltaTime);
+      this.updateLocalScale();
       this.renderer.render(this.scene, this.camera);
       return;
     }
@@ -436,6 +452,7 @@ export class GalaxyScene {
     }
 
     this.controls.update();
+    this.updateLocalScale();
     this.renderer.render(this.scene, this.camera);
   }
 }

@@ -356,6 +356,63 @@ canvas {
   border-color: var(--accent-gold);
 }
 
+.landmark-btn.search-btn[aria-expanded='true'] {
+  background: rgba(0, 240, 255, 0.22);
+  border-color: var(--accent-cyan);
+}
+
+/* A row of the header: the header wraps, so this takes the full width. */
+.search-panel {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.glass-input.search-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+}
+
+.search-results {
+  list-style: none;
+  max-height: min(50vh, 340px);
+  overflow-y: auto;
+}
+
+.search-results:empty {
+  display: none;
+}
+
+.search-result,
+.search-empty {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 0.84rem;
+}
+
+.search-result {
+  cursor: pointer;
+}
+
+.search-result:hover,
+.search-result[aria-selected='true'] {
+  background: rgba(0, 240, 255, 0.14);
+}
+
+.search-result-meta,
+.search-empty {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
 .landmark-btn.simbad-btn {
   border-color: rgba(170, 68, 255, 0.45);
 }
@@ -1466,4 +1523,161 @@ canvas {
 
 .ar-hand-metrics:empty {
   display: none;
+}
+
+/* ============================================
+   MILKY WAY PORTAL & SOLAR SYSTEM (easter egg)
+   ============================================ */
+
+.solar-active .hud-container,
+.solar-active .named-layer {
+  display: none;
+}
+
+.portal-btn {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 64%;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100vw - 32px);
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 11px 22px;
+  border: 1px solid rgba(255, 214, 140, 0.8);
+  border-radius: 999px;
+  background: rgba(24, 16, 8, 0.82);
+  color: #fff3dc;
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 0 24px rgba(255, 190, 90, 0.45);
+  animation: portal-pulse 2.4s ease-in-out infinite;
+}
+
+.portal-btn span {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: rgba(255, 236, 205, 0.75);
+}
+
+@keyframes portal-pulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(255, 190, 90, 0.35); }
+  50% { box-shadow: 0 0 34px rgba(255, 190, 90, 0.7); }
+}
+
+.warp-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, #1a1206 0%, #000 70%);
+  color: #ffe9c7;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.45s ease;
+}
+
+.warp-veil.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.solar-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.solar-top {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: max(16px, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  max-width: calc(100vw - 32px);
+  pointer-events: auto;
+}
+
+.solar-top .control-btn {
+  white-space: nowrap;
+}
+
+.solar-title {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.95rem;
+}
+
+.solar-title span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.solar-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.solar-label {
+  position: absolute;
+  top: -8px;
+  left: 0;
+  padding: 2px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: rgba(8, 10, 20, 0.6);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.solar-label:hover,
+.solar-label.following {
+  border-color: rgba(255, 214, 140, 0.9);
+  color: #fff3dc;
+}
+
+.solar-hint,
+.solar-credit {
+  position: absolute;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.solar-hint {
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100vw - 32px);
+  text-align: center;
+}
+
+.solar-credit {
+  right: 16px;
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + 20px);
+  pointer-events: auto;
+  text-align: right;
+}
+
+.solar-credit a {
+  color: inherit;
 }

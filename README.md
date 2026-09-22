@@ -49,6 +49,12 @@
 - 🏷️ **Named Objects & Labels**
   A curated set of identified objects — Messier galaxies, clusters, superclusters, voids and famous quasars — is plotted at true coordinates alongside whichever catalog is loaded. Labels are zoom-gated: nearby galaxies surface once you fly into the local volume, large-scale structures label at survey scale. Click any named object for its catalogue IDs, coordinates, redshift, distance and lookback time.
 
+- 🔍 **Search by Name**
+  **Search** (or `/`) finds any named object by name or catalogue ID — `M31`, `Andromeda`, `Coma`, `3C 273`, `Milky Way` — plus the Boötes Void and Sloan Great Wall, then flies there and opens its card, widening the redshift slice if the object would otherwise be hidden.
+
+- 🌌 **The Milky Way — and what is inside it**
+  Our own galaxy sits where it belongs: a barred spiral in the true galactic plane, its centre 8.2 kpc from the Sun at the map's origin. Zoom in close and see what happens.
+
 - 📱 **Camera Passthrough AR**
   View the map through your device camera. The survey floats as a fixed object in the room — move the phone to look around it, pinch to change its apparent size, and tap **Recentre** to bring it back in front of you. **Fly to object** on a label's card re-centres the AR map on that object. Needs a secure context (HTTPS) and a motion sensor; without a gyroscope it falls back to drag-to-look over the live feed.
 
@@ -155,6 +161,8 @@ the browser talks to it directly with no proxy.
 | **`[H]`** | Hide / show the UI (clean view for screen recording) |
 | **`[O]`** | Toggle auto-orbit |
 | **`[T]`** | Toggle a transparent canvas background (for compositing recordings) |
+| **`[/]`** | Search by name |
+| **`[Esc]`** | Leave the Solar System |
 
 Add `?debug` to the URL to show the gesture tuning numbers (reading gap, demanded and actual sky speed) under the hand preview.
 
@@ -192,6 +200,8 @@ CosmoVerse-3D/
 ## 📄 License
 
 Distributed under the MIT License.
+
+Planet texture maps in `public/textures/solar/` are by [Solar System Scope](https://www.solarsystemscope.com/textures/), based on NASA imagery, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — see `CREDITS.md` there.
 
 ---
 
