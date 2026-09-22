@@ -116,22 +116,27 @@ export class NamedObjectLayer {
       const { x, y, z } = this.selected.position;
       const target = new THREE.Vector3(x, y, z);
       const offset = Math.max(this.selected.distanceMpc * 0.08, 12);
+      // AR aims the camera from the device, so it moves the map instead.
+      if (this.onFlyTo?.(target, offset)) return;
       const camPos = target.clone().add(new THREE.Vector3(offset, offset * 0.6, offset));
       this.scene.smoothFlyTo(camPos, target);
     });
 
-    window.addEventListener('mousedown', (e) => {
-      if (this.isInteractiveTarget(e.target)) {
+    // Pointer events, so a tap selects on touch screens as a click does with a
+    // mouse. Only the primary pointer counts: the second finger of a pinch is
+    // not a tap.
+    window.addEventListener('pointerdown', (e) => {
+      if (!e.isPrimary || this.isInteractiveTarget(e.target)) {
         this._pointerDown = null;
         return;
       }
       this._pointerDown = { x: e.clientX, y: e.clientY };
     });
 
-    window.addEventListener('mouseup', (e) => {
+    window.addEventListener('pointerup', (e) => {
       const down = this._pointerDown;
       this._pointerDown = null;
-      if (!down) return;
+      if (!down || !e.isPrimary) return;
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) >= DRAG_TOLERANCE_PX) return;
 
       const hit = this.hitTest(e.clientX, e.clientY);
@@ -141,7 +146,21 @@ export class NamedObjectLayer {
   }
 
   isInteractiveTarget(target) {
-    return Boolean(target.closest?.('.glass-card') || target.closest?.('.named-card'));
+    return Boolean(target.closest?.('.glass-card, .named-card, .ar-hand-preview, .toast, dialog'));
+  }
+
+  /**
+   * Whether the shader is drawing this object's point right now. A label over
+   * a point that has not been plotted yet, or that the redshift slice hides,
+   * names empty sky.
+   */
+  isDrawn(obj) {
+    const { pointsMesh, uniforms } = this.scene;
+    const order = pointsMesh?.geometry.getAttribute('aSpawnOrder')?.array;
+    if (!order || obj.pointIndex == null) return true;
+    return order[obj.pointIndex] <= uniforms.uPlotProgress.value
+      && obj.filterZ >= uniforms.uMinZ.value
+      && obj.filterZ <= uniforms.uMaxZ.value;
   }
 
   setDataset(catalogData) {
@@ -176,7 +195,7 @@ export class NamedObjectLayer {
     this.candidates.length = 0;
     for (const obj of this.objects) {
       const tierMatches = (obj.tier === 'local') === localTierActive;
-      if (!tierMatches && obj !== this.selected) continue;
+      if (obj !== this.selected && (!tierMatches || !this.isDrawn(obj))) continue;
 
       const screen = this.projectToScreen(obj.position);
       if (!screen) continue;

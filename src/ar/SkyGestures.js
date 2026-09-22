@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { HandTracker } from './HandTracker.js';
 
 // Hand travel across the frame, in radians of sky.
 const YAW_GAIN = Math.PI * 0.55;
@@ -84,6 +83,9 @@ export class SkyGestures {
     this.stream = null;
     this.preview = null;
     this.active = false;
+    this.starting = false;
+    this.cancelled = false;
+    this.openThreshold = null;
 
     this.engaged = false;
     this.yawVel = 0;
@@ -123,7 +125,7 @@ export class SkyGestures {
    * @param preview  optional HandPreview to draw landmarks into
    */
   async start({ target, stream, mirrored = false, preview = null } = {}) {
-    if (this.active) return;
+    if (this.active || this.starting) return;
 
     const reason = SkyGestures.unsupportedReason();
     if (reason) throw new Error(reason);
@@ -132,6 +134,8 @@ export class SkyGestures {
     this.target = target ?? this.scene;
     this.stream = stream;
     this.preview = preview;
+    this.starting = true;
+    this.cancelled = false;
 
     try {
       // A detached element is enough — MediaPipe only needs decoded frames.
@@ -141,30 +145,59 @@ export class SkyGestures {
       this.video.srcObject = this.stream;
       await this.video.play();
 
-      this.tracker = new HandTracker({ anchorHand: 'Right', mirrored });
+      // MediaPipe is loaded on first use only; most visitors never gesture.
+      const { HandTracker, OPEN_ENTER } = await import('./HandTracker.js');
+      this.openThreshold = OPEN_ENTER;
+      // Kept between sessions: reloading the model made every toggle a wait.
+      this.tracker ??= new HandTracker({ anchorHand: 'Right', mirrored });
+      this.tracker.mirrored = mirrored;
+      this.tracker.reset();
       await this.tracker.load();
     } catch (err) {
       // Leaving a camera running after a failed start is the worst outcome here.
-      this.releaseSources();
+      this.releaseVideo();
+      this.tracker?.close();
+      this.tracker = null;
+      if (this.cancelled) return;
       throw asError(err);
+    } finally {
+      this.starting = false;
     }
 
+    // AR was left while the model loaded: its stream is gone, so stay down.
+    if (this.cancelled) {
+      this.releaseVideo();
+      return;
+    }
+
+    this.resetMotion();
     this.active = true;
     this.nextDetectAt = 0;
     this.notify();
   }
 
-  /** Drops the tracker and the video element. ARMode owns the stream itself. */
-  releaseSources() {
-    this.tracker?.close();
-    this.tracker = null;
+  /** Drops the video element. ARMode owns the stream itself. */
+  releaseVideo() {
     this.stream = null;
-
     if (this.video) {
       this.video.srcObject = null;
       this.video = null;
     }
     this.preview?.hide();
+  }
+
+  resetMotion() {
+    this.engaged = false;
+    this.yawVel = 0;
+    this.pitchVel = 0;
+    this.lastDriver = null;
+    this.lastAnchor = null;
+    this.smoothSeparation = null;
+    this.zooming = false;
+    this.lastReadingAt = null;
+    this.lastGap = null;
+    this.lastDemand = 0;
+    this.pendingScale = 1;
   }
 
   /**
@@ -186,15 +219,13 @@ export class SkyGestures {
   }
 
   stop() {
+    if (this.starting) this.cancelled = true;
     if (!this.active) return;
     this.active = false;
-    this.engaged = false;
-    this.yawVel = 0;
-    this.pitchVel = 0;
-    this.lastDriver = null;
-    this.lastAnchor = null;
 
-    this.releaseSources();
+    this.resetMotion();
+    this.releaseVideo();
+    this.tracker?.reset();
     this.applyTrail(0);
     this.notify();
   }
@@ -252,6 +283,7 @@ export class SkyGestures {
       hands: reading.hands,
       engaged,
       openness: reading.openness,
+      threshold: this.openThreshold,
       mirrored: this.tracker.mirrored,
       // Read these off the screen before touching any constant.
       gapMs: this.lastGap ? Math.round(this.lastGap * 1000) : null,

@@ -4,9 +4,9 @@
 [![WebGL](https://img.shields.io/badge/WebGL-Custom%20Shaders-990000?style=for-the-badge&logo=webgl)](https://www.khronos.org/webgl/)
 [![Vite](https://img.shields.io/badge/Vite-8.2-646CFF?style=for-the-badge&logo=vite)](https://vitejs.dev/)
 [![Cosmology](https://img.shields.io/badge/Cosmology-Planck%202018-005580?style=for-the-badge)]()
-[![License](https://img.shields.io/badge/License-MIT-blue.style=for-the-badge)]()
+[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)]()
 
-**CosmoVerse-3D** is a high-performance interactive 3D WebGL cosmic map visualizing **240,000 celestial objects** (galaxies and quasars/QSOs) from the Sloan Digital Sky Survey (SDSS DR18). Powered by custom GLSL shaders and real-time **Planck 2018 Cosmological Model** computations, it maps redshift slices into accurate comoving distances and lookback times out to $z = 7.0$ (over 12.96 billion years back into cosmic history).
+**CosmoVerse-3D** is a high-performance interactive 3D WebGL cosmic map of **240,000 galaxies and quasars** laid out like the Sloan Digital Sky Survey (SDSS DR18) footprint. The default catalogue is **synthetic** — generated in the browser with a modelled cosmic web — and one click swaps it for real objects from SIMBAD. Powered by custom GLSL shaders and real-time **Planck 2018 Cosmological Model** computations, it maps redshift slices into accurate comoving distances and lookback times out to $z = 7.0$ (over 12.96 billion years back into cosmic history).
 
 ---
 
@@ -32,13 +32,13 @@
   - Angular Diameter & Luminosity Distances
 
 - ⚡ **Streamed Progressive Data Engine**
-  Simulates live telescope data ingestion stream from 0.2 objects/sec up to 25,000 objects/sec, with an interactive timeline scrubber and instant dataset plotting options.
+  Plots the catalogue one object at a time, from 0.2 objects/sec up to 25,000 objects/sec, in cosmic-time, telescope-scan, filament-first or random order, with a timeline scrubber. The counts, redshift frontier and histogram describe exactly the points on screen.
 
 - 📊 **Real-time Redshift Histogram & Slice Filtering**
-  Interactive distribution graph showing object counts across redshift bins ($z = 0.0$ to $z = 7.0$). Filter specific cosmic epochs dynamically.
+  Distribution of the plotted objects across redshift bins, and a slice filter from $z = 0$ to $z = 7.5$ to isolate a cosmic epoch.
 
 - 🛸 **Cyberpunk Glassmorphic Sci-Fi HUD**
-  Sleek dark-mode interface with live cosmic telemetry counters, camera presets (**Boötes Void**, **Sloan Great Wall**, **Quasar Dawn**, **Earth Origin**, **Survey Wedge**), auto-orbit controls, and CSV dataset import/export.
+  Sleek dark-mode interface with live cosmic telemetry counters, camera presets (**Boötes Void**, **Sloan Great Wall**, **Quasar Dawn**, **Earth Origin**, **Survey Wedge**), auto-orbit controls, and CSV import (paste or choose a file). On phones the panels collapse out of the way of the map.
 
 - 🛰️ **Live SIMBAD Catalog (real observations)**
   One click swaps the synthetic catalog for ~40,000 real galaxies and quasars
@@ -50,14 +50,10 @@
   A curated set of identified objects — Messier galaxies, clusters, superclusters, voids and famous quasars — is plotted at true coordinates alongside whichever catalog is loaded. Labels are zoom-gated: nearby galaxies surface once you fly into the local volume, large-scale structures label at survey scale. Click any named object for its catalogue IDs, coordinates, redshift, distance and lookback time.
 
 - 📱 **Camera Passthrough AR**
-  View the map through your device camera. The survey floats as a fixed object in the room — move the phone to look around it, pinch to change its apparent size, and tap **Recentre** to bring it back in front of you. Needs a secure context (HTTPS) and a motion sensor; without a gyroscope it falls back to drag-to-look over the live feed.
+  View the map through your device camera. The survey floats as a fixed object in the room — move the phone to look around it, pinch to change its apparent size, and tap **Recentre** to bring it back in front of you. **Fly to object** on a label's card re-centres the AR map on that object. Needs a secure context (HTTPS) and a motion sensor; without a gyroscope it falls back to drag-to-look over the live feed.
 
-- 🔍 **Interactive Object Inspector & Spectrum Visualizer**
-  Click on any celestial object to view detailed astronomical telemetry:
-  - Celestial Coordinates ($\text{RA}, \text{DEC}$)
-  - SDSS Photometric Band Magnitudes ($u, g, r, i, z$)
-  - Stellar Mass ($M_\odot$) & Morphological Class (Spiral, Elliptical, Quasar)
-  - Simulated Dynamic Spectral Emission Profile
+- 🖐️ **Hand-Gesture Sky Control (AR)**
+  Tap **Gestures** in the AR dock (it switches to the front camera so you can watch the screen). Hold your **right palm open** to arm, then **sweep your left hand** to turn the sky — it is heavy, so it takes a deliberate sweep to start and keeps coasting after your hands drop. **Pull both hands apart or together** to zoom. A small preview top-left shows what the tracker sees and what to do next. The MediaPipe hand model downloads the first time you switch gestures on.
 
 ---
 
@@ -66,8 +62,8 @@
 | Source | How it loads | Notes |
 | :--- | :--- | :--- |
 | **Synthetic SDSS DR18 catalog** | Generated in-browser at startup | 240,000 objects with a modelled cosmic web, Boötes Void and Sloan Great Wall. Instant and offline. |
-| **SIMBAD (CDS Strasbourg)** | 🛰️ **Load SIMBAD** button in the header | ~40,000 **real** galaxies and quasars with measured redshifts, fetched live over the SIMBAD TAP `/sync` endpoint. |
-| **Custom CSV** | 📂 **Import CSV** button | Any table with `ra`, `dec`, `z` and an optional `class` column. |
+| **SIMBAD (CDS Strasbourg)** | 🔴/🟢 **SIMBAD** push button in the header | ~40,000 **real** galaxies and quasars with measured redshifts, fetched live over the SIMBAD TAP `/sync` endpoint. Push again to switch back. |
+| **Custom CSV** | 📂 **Import CSV** button | Any table with `ra`, `dec`, `z` (or `redshift`) and an optional `class` column; SDSS CasJobs `#` comment lines are skipped. Up to 1,000,000 rows. |
 
 ### How the SIMBAD query works
 
@@ -102,7 +98,7 @@ the browser talks to it directly with no proxy.
 | **JavaScript (ES Modules)** | Core application logic & cosmological equations |
 | **Vite** | Next-generation fast frontend tooling & development server |
 | **Vanilla CSS3** | Glassmorphism UI tokens, micro-animations & dark mode styling |
-| **Lucide Icons** | Vector icons for astronomy UI navigation |
+| **MediaPipe Tasks Vision** | Hand landmarks for gesture control, loaded only when gestures are switched on |
 
 ---
 
@@ -110,14 +106,14 @@ the browser talks to it directly with no proxy.
 
 ### Prerequisites
 
-Make sure you have [Node.js](https://nodejs.org/) (v16+ recommended) installed on your machine.
+[Node.js](https://nodejs.org/) 20.19+ or 22.12+ (required by Vite 8).
 
 ### Installation
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/developerrahulofficial/CosmoVerse-3D.git
-   cd CosmoVerse-3D
+   git clone https://github.com/akash-mehra/AR-CosmoVerse-3D.git
+   cd AR-CosmoVerse-3D
    ```
 
 2. **Install dependencies**
@@ -125,11 +121,11 @@ Make sure you have [Node.js](https://nodejs.org/) (v16+ recommended) installed o
    npm install
    ```
 
-3. **Fetch the named-object catalogue** (optional)
+3. **Refresh the named-object catalogue** (optional)
    ```bash
    npm run fetch:named
    ```
-   Queries SIMBAD for real galaxies, clusters and quasars and writes `src/data/namedObjects.json`. The repository ships this file empty; without this step the map renders normally but carries no labels.
+   Queries SIMBAD for real galaxies, clusters and quasars and rewrites `src/data/namedObjects.json`. The repository ships it populated (1,371 objects), so this is only needed to refresh it.
 
 4. **Start local development server**
    ```bash
@@ -148,13 +144,19 @@ Make sure you have [Node.js](https://nodejs.org/) (v16+ recommended) installed o
 
 | Input | Action |
 | :--- | :--- |
-| **Left Click + Drag** | Orbit camera around cosmic origin |
-| **Right Click + Drag** | Pan camera |
-| **Scroll Wheel** | Zoom in / out through cosmic structures |
-| **Click Object** | Inspect galaxy / quasar properties & spectrum |
-| **`[T]`** | Toggle HUD glass background transparency |
-| **`[H]`** | Hide / Show UI overlays |
-| **`[O]`** | Toggle smooth auto-orbit camera rotation |
+| **Left Click + Drag** / one finger | Orbit camera |
+| **Right Click + Drag** / two fingers | Pan camera |
+| **Scroll Wheel** / pinch | Zoom toward the pointer |
+| **Double-click** | Fly in at the pointer (**Shift**: fly out) |
+| **Click / tap a label** | Open the object's card: IDs, coordinates, redshift, distance, lookback time |
+| **`[Space]`** | Play / pause plotting |
+| **`[R]`** | Reset plotting to zero |
+| **`[F]`** | Fullscreen |
+| **`[H]`** | Hide / show the UI (clean view for screen recording) |
+| **`[O]`** | Toggle auto-orbit |
+| **`[T]`** | Toggle a transparent canvas background (for compositing recordings) |
+
+Add `?debug` to the URL to show the gesture tuning numbers (reading gap, demanded and actual sky speed) under the hand preview.
 
 ---
 
@@ -168,9 +170,8 @@ CosmoVerse-3D/
 │       └── quasar_dawn.png
 ├── scripts/
 │   └── fetchNamedObjects.mjs # Builds the named-object catalogue from SIMBAD TAP
-├── public/                  # Static web assets & favicon
 ├── src/
-│   ├── assets/              # Textures & graphics
+│   ├── ar/                  # Camera passthrough AR, hand tracking & gesture control
 │   ├── controller/          # PlottingController stream logic
 │   ├── cosmology/           # Planck 18 cosmological distance model
 │   ├── data/                # Catalog sources
@@ -178,7 +179,7 @@ CosmoVerse-3D/
 │   │   └── simbadSource.js  # Live SIMBAD TAP (ADQL) client
 │   ├── rendering/           # Three.js scene, camera damping & GLSL shaders
 │   │   └── shaders/         # galaxy.vert & galaxy.frag
-│   ├── ui/                  # HUD, spectrum visualizer & control panels
+│   ├── ui/                  # HUD, named-object labels & detail card, notices
 │   ├── main.js              # Application entry point
 │   └── style.css            # Sci-fi glassmorphic styling system
 ├── index.html               # Main HTML entry point
@@ -190,7 +191,7 @@ CosmoVerse-3D/
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License.
 
 ---
 

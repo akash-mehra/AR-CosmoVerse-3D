@@ -4,6 +4,10 @@ import galaxyVert from './shaders/galaxy.vert?raw';
 import galaxyFrag from './shaders/galaxy.frag?raw';
 import { BOOTES_VOID_CENTER, SLOAN_GREAT_WALL } from '../data/sdssGenerator.js';
 
+// Birth flash length: long enough to see one galaxy land in slow motion, short
+// enough not to smear the whole frontier at full speed.
+const flashSeconds = (speed) => Math.min(0.9, 0.15 + 8 / speed);
+
 export class GalaxyScene {
   constructor(container) {
     this.container = container;
@@ -19,14 +23,17 @@ export class GalaxyScene {
       alpha: true
     });
     this.renderer.setSize(this.width, this.height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2.0);
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setClearColor(0x040408, 1.0); // Sleek deep cosmic dark
     container.appendChild(this.renderer.domElement);
 
     // 2. Scene & Camera
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(50, this.width / this.height, 1.0, 30000.0);
-    this.camera.position.set(200, 350, 1100);
+    // Near has to sit well inside controls.minDistance (0.2 Mpc), or the Local
+    // Group is clipped away exactly when you fly in to look at it.
+    this.camera = new THREE.PerspectiveCamera(50, this.width / this.height, 0.02, 30000.0);
+    this.camera.position.set(200, 500, 1350);
 
     // 3. Controls
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -34,6 +41,8 @@ export class GalaxyScene {
     this.controls.dampingFactor = 0.05;
     this.controls.maxDistance = 20000.0;
     this.controls.minDistance = 0.2; // Local Group galaxies sit under 1 Mpc from origin
+    // Scrolling heads for what is under the pointer, like every map.
+    this.controls.zoomToCursor = true;
     this.controls.target.set(0, 0, 0);
 
     // 4. Uniforms
@@ -47,7 +56,8 @@ export class GalaxyScene {
       uHighlightActive: { value: 0.0 },
       uHighlightCenter: { value: new THREE.Vector3(0, 0, 0) },
       uHighlightRadius: { value: 40.0 },
-      uPlotSpeed: { value: 4500.0 },
+      uSpawnWindow: { value: 0.002 },
+      uPixelRatio: { value: this.pixelRatio },
       // Star trails: how far a point stretches, and which way on screen.
       uTrailAmount: { value: 0.0 },
       uTrailDir: { value: new THREE.Vector2(1, 0) }
@@ -101,7 +111,10 @@ export class GalaxyScene {
         color: 0x334466,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.18
+        opacity: 0.18,
+        // With the near plane this close, depth is coarse out at the rings;
+        // writing it would clip stars sitting just behind them.
+        depthWrite: false
       });
       const ring = new THREE.Mesh(ringGeo, ringMat);
       ring.rotation.x = Math.PI / 2;
@@ -151,11 +164,14 @@ export class GalaxyScene {
     geo.setAttribute('aIsQSO', new THREE.BufferAttribute(catalogData.isQSOArray, 1));
     geo.setAttribute('aLandmarkId', new THREE.BufferAttribute(catalogData.landmarkIds, 1));
 
-    // Default order: redshift order
+    // Its own buffer: setPlottingOrder copies other orders into it, and aliasing
+    // catalogData.orders.redshift here overwrote that order on the first switch.
     this.currentOrderKey = 'redshift';
-    geo.setAttribute('aSpawnOrder', new THREE.BufferAttribute(catalogData.orders.redshift, 1));
+    geo.setAttribute('aSpawnOrder', new THREE.BufferAttribute(new Float32Array(catalogData.orders.redshift), 1));
 
-    const mat = new THREE.ShaderMaterial({
+    // One material for the life of the scene; a new one per dataset leaked a
+    // compiled program on every catalog swap.
+    this.pointsMaterial ??= new THREE.ShaderMaterial({
       vertexShader: galaxyVert,
       fragmentShader: galaxyFrag,
       uniforms: this.uniforms,
@@ -164,11 +180,8 @@ export class GalaxyScene {
       blending: THREE.AdditiveBlending
     });
 
-    this.pointsMesh = new THREE.Points(geo, mat);
+    this.pointsMesh = new THREE.Points(geo, this.pointsMaterial);
     this.scene.add(this.pointsMesh);
-
-    // Fit camera to local wedge (up to z=0.30 ~ 1200 Mpc)
-    this.flyToLandmark('overview', true);
   }
 
   /**
@@ -213,15 +226,9 @@ export class GalaxyScene {
   }
 
   setPlotSpeed(speed) {
-    this.uniforms.uPlotSpeed.value = speed;
-  }
-
-  setPointSize(size) {
-    this.uniforms.uPointSize.value = size;
-  }
-
-  setHDRExposure(exposure) {
-    this.uniforms.uHDRExposure.value = exposure;
+    const count = this.catalogData?.count || 1;
+    const span = Number.isFinite(speed) ? (speed * flashSeconds(speed)) / count : 0.06;
+    this.uniforms.uSpawnWindow.value = THREE.MathUtils.clamp(span, 1e-7, 0.06);
   }
 
   setTransparentBackground(isTransparent) {
@@ -382,6 +389,14 @@ export class GalaxyScene {
 
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height);
+
+    // Moving a window between screens changes the ratio without a reload.
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2.0);
+    if (pixelRatio !== this.pixelRatio) {
+      this.pixelRatio = pixelRatio;
+      this.renderer.setPixelRatio(pixelRatio);
+      this.uniforms.uPixelRatio.value = pixelRatio;
+    }
   }
 
   update(deltaTime) {

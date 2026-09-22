@@ -10,10 +10,6 @@ const TAP_SYNC_URL = 'https://simbad.cds.unistra.fr/simbad/sim-tap/sync';
 const REQUEST_TIMEOUT_MS = 90000;
 const MAX_ROWS_PER_BAND = 50000;
 
-// SIMBAD short object types rendered as quasars; the rest of the galaxy
-// hierarchy renders as galaxies.
-const QSO_OTYPES = new Set(['QSO', 'BLL', 'Bla', 'Blazar']);
-
 // `otype = 'X..'` matches the whole SIMBAD hierarchy below X. The QSO subtree
 // sits under Galaxy, so galaxy bands subtract it to keep the families disjoint.
 const TYPE_FILTERS = {
@@ -55,13 +51,17 @@ function buildQuery(band) {
     throw new Error(`Band limit must be an integer in 1..${MAX_ROWS_PER_BAND}`);
   }
 
-  return `SELECT TOP ${limit} ra, dec, rvz_redshift, otype FROM basic ` +
+  return `SELECT TOP ${limit} ra, dec, rvz_redshift FROM basic ` +
     `WHERE ${typeFilter} AND rvz_redshift > ${minZ} AND rvz_redshift <= ${maxZ} ` +
     `AND ra IS NOT NULL AND dec IS NOT NULL`;
 }
 
-/** Maps a VOTable-JSON payload to { ra, dec, z, isQSO } records. */
-function toRecords(payload) {
+/**
+ * Maps a VOTable-JSON payload to { ra, dec, z, isQSO } records. The band's own
+ * type filter decides isQSO: the QSO bands select exactly the QSO subtree and
+ * the galaxy bands exclude it, so no per-row otype list can drift from them.
+ */
+function toRecords(payload, isQSO) {
   if (!payload || !Array.isArray(payload.metadata) || !Array.isArray(payload.data)) {
     throw new Error('Unexpected SIMBAD response shape');
   }
@@ -70,7 +70,7 @@ function toRecords(payload) {
   payload.metadata.forEach((meta, i) => {
     if (meta && typeof meta.name === 'string') col[meta.name.toLowerCase()] = i;
   });
-  for (const name of ['ra', 'dec', 'rvz_redshift', 'otype']) {
+  for (const name of ['ra', 'dec', 'rvz_redshift']) {
     if (col[name] === undefined) throw new Error(`SIMBAD response is missing column '${name}'`);
   }
 
@@ -78,7 +78,7 @@ function toRecords(payload) {
     ra: row[col.ra],
     dec: row[col.dec],
     z: row[col.rvz_redshift],
-    isQSO: QSO_OTYPES.has(row[col.otype])
+    isQSO
   }));
 }
 
@@ -105,7 +105,7 @@ async function fetchBand(band) {
   } catch {
     throw new Error('SIMBAD TAP returned a non-JSON body');
   }
-  return toRecords(payload);
+  return toRecords(payload, band.kind === 'qso');
 }
 
 /**

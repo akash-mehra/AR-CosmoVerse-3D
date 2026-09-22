@@ -60,21 +60,35 @@ export class HandTracker {
   async load() {
     if (this.landmarker) return;
     const fileset = await FilesetResolver.forVisionTasks(WASM_ROOT);
-    this.landmarker = await HandLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+    const options = (delegate) => ({
+      baseOptions: { modelAssetPath: MODEL_URL, delegate },
       runningMode: 'VIDEO',
       numHands: 2,
       minHandDetectionConfidence: 0.6,
       minHandPresenceConfidence: 0.6,
       minTrackingConfidence: 0.6
     });
+
+    try {
+      this.landmarker = await HandLandmarker.createFromOptions(fileset, options('GPU'));
+    } catch (err) {
+      // Some mobile GPUs cannot run the delegate at all. The CPU path is slower
+      // but works; if the model itself failed to download, this fails too.
+      console.warn('GPU hand tracking unavailable, falling back to CPU:', err);
+      this.landmarker = await HandLandmarker.createFromOptions(fileset, options('CPU'));
+    }
+  }
+
+  /** Forgets per-session state; the loaded model is kept. */
+  reset() {
+    this.lastVideoTime = -1;
+    this.wasOpen = { Left: false, Right: false };
   }
 
   close() {
     this.landmarker?.close();
     this.landmarker = null;
-    this.lastVideoTime = -1;
-    this.wasOpen = { Left: false, Right: false };
+    this.reset();
   }
 
   /** The label MediaPipe will use for the hand the user thinks of as the anchor. */
@@ -102,7 +116,8 @@ export class HandTracker {
       // Still worth reporting so the preview shows tracking before it can arm.
       return {
         partial: true,
-        hands: hands.map((points) => ({ points, role: 'driver' })),
+        // Which hand a lone hand is cannot be told reliably, so it gets no role.
+        hands: hands.map((points) => ({ points, role: 'idle' })),
         openness: hands.length ? openness(hands[0]) : 0
       };
     }
