@@ -198,7 +198,7 @@ export function generateSDSSCatalog(targetCount = 240000) {
     else landmarkIds[idx] = 0;
 
     // Plotting order values
-    orderRedshift[idx] = Math.min(z / 0.45, 1.0) * 0.5; // First half of redshift order
+    orderRedshift[idx] = z;
     orderScan[idx] = ((ra % 360) / 360.0) * 0.8 + (dec + 20) / 100.0 * 0.2;
     orderFilaments[idx] = 1.0 - webDensity; // Dense filaments first (lowest density value last)
     orderRandom[idx] = Math.random();
@@ -239,7 +239,7 @@ export function generateSDSSCatalog(targetCount = 240000) {
     isQSOArray[idx] = 1;
     landmarkIds[idx] = z >= 4.0 ? 3 : 0; // High redshift quasar dawn
 
-    orderRedshift[idx] = 0.5 + Math.min((z - 0.45) / 6.6, 1.0) * 0.5; // Second half of redshift order
+    orderRedshift[idx] = z;
     orderScan[idx] = ((ra % 360) / 360.0) * 0.8 + (dec + 20) / 100.0 * 0.2;
     orderFilaments[idx] = Math.random();
     orderRandom[idx] = Math.random();
@@ -260,9 +260,7 @@ export function generateSDSSCatalog(targetCount = 240000) {
     landmarkIds[idx] = 4;
     obj.pointIndex = idx;
 
-    orderRedshift[idx] = obj.isQSO
-      ? 0.5 + Math.min((obj.filterZ - 0.45) / 6.6, 1.0) * 0.5
-      : Math.min(obj.filterZ / 0.45, 1.0) * 0.5;
+    orderRedshift[idx] = obj.filterZ;
     orderScan[idx] = ((obj.ra % 360) / 360.0) * 0.8 + (obj.dec + 20) / 100.0 * 0.2;
     orderFilaments[idx] = Math.random();
     orderRandom[idx] = Math.random();
@@ -270,11 +268,10 @@ export function generateSDSSCatalog(targetCount = 240000) {
     idx++;
   }
 
-  // Normalize order arrays to strictly span [0, 1]
-  normalizeOrder(orderRedshift);
-  normalizeOrder(orderScan);
-  normalizeOrder(orderFilaments);
-  normalizeOrder(orderRandom);
+  rankOrder(orderRedshift);
+  rankOrder(orderScan);
+  rankOrder(orderFilaments);
+  rankOrder(orderRandom);
 
   return {
     count: total,
@@ -293,22 +290,43 @@ export function generateSDSSCatalog(targetCount = 240000) {
   };
 }
 
-function normalizeOrder(arr) {
+const RANK_BINS = 1 << 16;
+
+/**
+ * Replaces each sort key with (rank + 1) / n. The shader shows a point once its
+ * order is <= uPlotProgress, so with ranks a progress of k / n puts exactly k
+ * points on screen — the count, the speed in points per second and every
+ * telemetry figure then describe what is actually drawn. Min-max scaling kept
+ * the keys' own distribution, so "4,500 / sec" and the plotted count were
+ * fiction. Bucketed, so O(n); keys sharing a bucket keep buffer order.
+ */
+function rankOrder(arr) {
+  const n = arr.length;
+  if (n === 0) return;
+
   let min = Infinity, max = -Infinity;
-  for (let i = 0; i < arr.length; i++) {
+  for (let i = 0; i < n; i++) {
     if (arr[i] < min) min = arr[i];
     if (arr[i] > max) max = arr[i];
   }
-  const range = (max - min) || 1.0;
-  for (let i = 0; i < arr.length; i++) {
-    arr[i] = (arr[i] - min) / range;
+  const scale = (RANK_BINS - 1) / ((max - min) || 1);
+
+  const bins = new Uint16Array(n);
+  const next = new Uint32Array(RANK_BINS + 1);
+  for (let i = 0; i < n; i++) {
+    const b = ((arr[i] - min) * scale) | 0;
+    bins[i] = b;
+    next[b + 1]++;
   }
+  for (let b = 0; b < RANK_BINS; b++) next[b + 1] += next[b];
+  for (let i = 0; i < n; i++) arr[i] = (next[bins[i]]++ + 1) / n;
 }
 
 /**
- * Computes redshift histogram bins for interactive distance chart
+ * Redshift histogram of the points currently plotted: those whose spawn order
+ * is at or below `progress`, the same test the vertex shader applies.
  */
-export function computeRedshiftHistogram(redshifts, isQSOArray, minZ = 0.00, maxZ = 0.30, numBins = 50) {
+export function computeRedshiftHistogram(redshifts, isQSOArray, order, progress, minZ = 0.00, maxZ = 0.30, numBins = 50) {
   const galaxyBins = new Int32Array(numBins);
   const qsoBins = new Int32Array(numBins);
   const dz = (maxZ - minZ) / numBins;
@@ -317,6 +335,7 @@ export function computeRedshiftHistogram(redshifts, isQSOArray, minZ = 0.00, max
   let qsosInRegion = 0;
 
   for (let i = 0; i < redshifts.length; i++) {
+    if (order[i] > progress) continue;
     const z = redshifts[i];
     if (z >= minZ && z <= maxZ) {
       const binIdx = Math.min(Math.floor((z - minZ) / dz), numBins - 1);
@@ -386,7 +405,7 @@ export function buildCatalog(records) {
     isQSOArray[validCount] = isQSO ? 1 : 0;
     landmarkIds[validCount] = isQSO && z >= 4.0 ? 3 : 0; // Quasar dawn beacon
 
-    orderRedshift[validCount] = Math.min(z / MAX_CATALOG_Z, 1.0);
+    orderRedshift[validCount] = z;
     orderScan[validCount] = raNorm / 360.0;
     orderFilaments[validCount] = Math.random();
     orderRandom[validCount] = Math.random();
@@ -411,7 +430,7 @@ export function buildCatalog(records) {
     landmarkIds[validCount] = 4;
     obj.pointIndex = validCount;
 
-    orderRedshift[validCount] = Math.min(obj.filterZ / MAX_CATALOG_Z, 1.0);
+    orderRedshift[validCount] = obj.filterZ;
     orderScan[validCount] = (((obj.ra % 360) + 360) % 360) / 360.0;
     orderFilaments[validCount] = Math.random();
     orderRandom[validCount] = Math.random();
@@ -419,10 +438,10 @@ export function buildCatalog(records) {
     validCount++;
   }
 
-  normalizeOrder(orderRedshift.subarray(0, validCount));
-  normalizeOrder(orderScan.subarray(0, validCount));
-  normalizeOrder(orderFilaments.subarray(0, validCount));
-  normalizeOrder(orderRandom.subarray(0, validCount));
+  rankOrder(orderRedshift.subarray(0, validCount));
+  rankOrder(orderScan.subarray(0, validCount));
+  rankOrder(orderFilaments.subarray(0, validCount));
+  rankOrder(orderRandom.subarray(0, validCount));
 
   return {
     count: validCount,
@@ -441,22 +460,35 @@ export function buildCatalog(records) {
   };
 }
 
+// Past this the GPU buffers and the per-frame telemetry scan stop being cheap.
+export const MAX_IMPORT_ROWS = 1_000_000;
+
 /**
  * Custom SDSS SQL CSV / JSON Parser
  * Parses CSV with columns: ra, dec, z, class ('GALAXY' or 'QSO')
  */
 export function importCustomSDSSData(csvText) {
-  const lines = csvText.trim().split('\n');
+  // CasJobs exports open with a "#Table1" line; blank lines and CRLF are common.
+  const lines = String(csvText ?? '')
+    .split(/\r?\n/)
+    .filter(line => line.trim() && !line.trimStart().startsWith('#'));
   if (lines.length <= 1) throw new Error("CSV contains no rows");
+  if (lines.length - 1 > MAX_IMPORT_ROWS) {
+    throw new Error(`CSV has ${(lines.length - 1).toLocaleString()} rows; the limit is ${MAX_IMPORT_ROWS.toLocaleString()}.`);
+  }
 
   const headers = lines[0].toLowerCase().split(',').map(s => s.trim().replace(/['"]/g, ''));
   const raIdx = headers.indexOf('ra');
   const decIdx = headers.indexOf('dec');
-  const zIdx = headers.indexOf('z');
-  const classIdx = headers.findIndex(h => h.includes('class') || h.includes('type'));
+  const zIdx = headers.findIndex(h => h === 'z' || h === 'redshift');
+  // Prefer an exact 'class' so a 'subclass' column earlier in the row cannot win.
+  const exactClassIdx = headers.findIndex(h => h === 'class' || h === 'type');
+  const classIdx = exactClassIdx !== -1
+    ? exactClassIdx
+    : headers.findIndex(h => h.includes('class') || h.includes('type'));
 
   if (raIdx === -1 || decIdx === -1 || zIdx === -1) {
-    throw new Error("CSV must contain 'ra', 'dec', and 'z' columns.");
+    throw new Error("CSV must contain 'ra', 'dec', and 'z' (or 'redshift') columns.");
   }
 
   const records = [];

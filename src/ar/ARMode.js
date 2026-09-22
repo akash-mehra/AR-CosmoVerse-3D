@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { HandPreview } from './HandPreview.js';
+import { notify } from '../ui/notify.js';
 
 const DEG = Math.PI / 180;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -30,6 +31,7 @@ export class ARMode {
     this.scene = scene;
 
     this.active = false;
+    this.entering = false;
     this.stream = null;
     // Rear camera looks at the sky; front camera is the one you can hold your
     // hands in front of while still watching the screen.
@@ -77,7 +79,7 @@ export class ARMode {
       <video class="ar-video" playsinline muted autoplay></video>
       <div class="ar-dock glass-card">
         <span class="ar-status"></span>
-        <button class="dock-btn" type="button" data-ar="gestures" aria-pressed="false" title="Turn the sky with your hands: hold your right palm open to anchor, sweep with the other">🖐️ Gestures</button>
+        <button class="dock-btn" type="button" data-ar="gestures" aria-pressed="false" title="Turn the sky with your hands: hold your right palm open to anchor, sweep with the left. Pull both hands apart or together to zoom.">🖐️ Gestures</button>
         <button class="dock-btn" type="button" data-ar="recentre" title="Put the map back in front of you">Recentre</button>
         <button class="dock-btn" type="button" data-ar="flip" title="Switch between the rear and front camera">🔄 Flip</button>
         <button class="dock-btn exit-btn" type="button" data-ar="exit">Exit AR</button>
@@ -102,14 +104,25 @@ export class ARMode {
   }
 
   async enter() {
-    if (this.active) return;
+    // A second tap while the camera prompt is up would open a second stream
+    // and leak the first.
+    if (this.active || this.entering) return;
 
     const reason = ARMode.unsupportedReason();
     if (reason) {
-      alert(reason);
+      notify(reason, { error: true });
       return;
     }
 
+    this.entering = true;
+    try {
+      await this.start();
+    } finally {
+      this.entering = false;
+    }
+  }
+
+  async start() {
     // Safari only grants this from a user gesture, so it has to come before any
     // other await in the click handler.
     const orientationAllowed = await this.requestOrientationPermission();
@@ -117,7 +130,7 @@ export class ARMode {
     try {
       await this.openCamera(this.facingMode);
     } catch (err) {
-      alert(`Camera unavailable: ${err.message}`);
+      notify(`Camera unavailable: ${err.message}`, { error: true });
       return;
     }
 
@@ -133,10 +146,12 @@ export class ARMode {
     this.scene.setTransparentBackground(true);
     this.scene.cameraFlight = null;
     this.scene.autoOrbit = false;
+    this.gesturesActive = false;
 
     this.anchorMap();
     this.container.classList.add('ar-active');
     this.root.classList.remove('hidden');
+    this.setStatus('Checking motion sensor…');
 
     if (orientationAllowed) await this.startOrientation();
     this.applyInputMode();
@@ -160,11 +175,16 @@ export class ARMode {
     if (active) this.handPreview.show();
     else this.handPreview.hide();
 
-    if (this.status && this.hasOrientation) {
-      this.status.textContent = active
-        ? (engaged ? 'Sweeping the sky' : 'Open both palms')
-        : 'Move to look around';
-    }
+    this.gesturesActive = active;
+    if (loading) this.setStatus('Loading hand tracking…');
+    else if (active) this.setStatus(engaged ? 'Sweep left hand to turn' : 'Open your right palm');
+    else this.setStatus();
+  }
+
+  /** Dock status line; with no argument, the instruction for the input mode. */
+  setStatus(text = null) {
+    if (!this.status) return;
+    this.status.textContent = text ?? (this.hasOrientation ? 'Move to look around' : 'No sensor — drag to look');
   }
 
   /** True when the feed is a selfie view, which is displayed and read mirrored. */
@@ -181,7 +201,11 @@ export class ARMode {
 
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = stream;
-    this.facingMode = facingMode;
+    // `ideal` is a preference: a device with one camera hands back that one.
+    // Trust what the track reports, or a rear-only phone gets a mirrored feed
+    // and reversed gestures. Cameras that report nothing keep the requested label.
+    const actual = stream.getVideoTracks()[0]?.getSettings?.().facingMode;
+    this.facingMode = actual === 'user' || actual === 'environment' ? actual : facingMode;
 
     this.video.srcObject = stream;
     // A selfie view that is not mirrored reads as broken to everyone.
@@ -198,18 +222,25 @@ export class ARMode {
    * whoever is listening has to rebind to the new one — and to the fact that a
    * selfie feed reports handedness and hand motion mirrored.
    */
+  /** @returns true when the camera actually changed. */
   async flipCamera() {
-    if (!this.active) return;
+    if (!this.active) return false;
+    const previous = this.facingMode;
     const next = this.isMirrored ? 'environment' : 'user';
 
     try {
       await this.openCamera(next);
     } catch (err) {
-      alert(`Could not switch camera: ${err.message}`);
-      return;
+      notify(`Could not switch camera: ${err.message}`, { error: true });
+      return false;
     }
 
     this.onCameraChange?.({ stream: this.stream, mirrored: this.isMirrored });
+    if (this.facingMode === previous) {
+      notify('This device has only one camera.');
+      return false;
+    }
+    return true;
   }
 
   async requestOrientationPermission() {
@@ -223,10 +254,20 @@ export class ARMode {
     }
   }
 
-  /** Listens for a usable reading; resolves false if the device never sends one. */
+  /**
+   * Listens for a usable reading; resolves false if the device never sends one.
+   * Returns on the first reading rather than always sitting out the timeout.
+   */
   async startOrientation() {
     window.addEventListener('deviceorientation', this.handleOrientation);
-    await new Promise((resolve) => setTimeout(resolve, ORIENTATION_PROBE_MS));
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, ORIENTATION_PROBE_MS);
+      this.onFirstReading = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+    this.onFirstReading = null;
 
     if (!this.hasOrientation) {
       window.removeEventListener('deviceorientation', this.handleOrientation);
@@ -248,12 +289,12 @@ export class ARMode {
       this.container.addEventListener('touchstart', this.handleTouchStart, { passive: true });
       this.container.addEventListener('touchmove', this.handleTouchMove, { passive: false });
       this.container.addEventListener('touchend', this.handleTouchEnd, { passive: true });
-      this.status.textContent = 'Move to look around';
     } else {
       this.scene.controls.enabled = true;
       this.scene.cameraDriver = null;
-      this.status.textContent = 'No sensor — drag to look';
     }
+    // Gestures may have been switched on during the sensor probe.
+    if (!this.gesturesActive) this.setStatus();
   }
 
   handleOrientation(event) {
@@ -268,6 +309,7 @@ export class ARMode {
     if (!this.hasOrientation) {
       this.hasOrientation = true;
       this.recentre();
+      this.onFirstReading?.();
     }
   }
 
@@ -299,6 +341,13 @@ export class ARMode {
    * off it — the map turns, your head does not.
    */
   orbitBy(dYaw, dPitch, scaleFactor = 1.0) {
+    // Without a sensor OrbitControls owns the camera, so swing it the same way
+    // the desktop view does; moving the anchor would snap back on its next update.
+    if (!this.hasOrientation) {
+      this.scene.orbitBy(dYaw, dPitch, scaleFactor);
+      return;
+    }
+
     this._gestureSpherical ??= new THREE.Spherical();
 
     this._gestureSpherical.setFromVector3(this.anchorDirection);
@@ -311,8 +360,22 @@ export class ARMode {
     this.applyDistance();
   }
 
+  /**
+   * Re-anchors the map on a point — "Fly to object" in AR, where flying the
+   * camera means nothing because the device aims it — and turns it to face you.
+   */
+  focusOn(target, distance) {
+    this.anchor.copy(target);
+    this.distance = THREE.MathUtils.clamp(distance, MIN_DISTANCE, MAX_DISTANCE);
+    this.recentre();
+  }
+
   /** Rotates the map's heading onto wherever the device is pointing right now. */
   recentre() {
+    // The label layer picks its tier from the distance to the orbit target.
+    this.scene.controls.target.copy(this.anchor);
+    this.applyDistance();
+    // No sensor: OrbitControls owns the view, and it is now back on the anchor.
     if (!this.hasOrientation) return;
 
     this.deviceForward.copy(FORWARD).applyQuaternion(this.rawQuaternion);
@@ -363,6 +426,9 @@ export class ARMode {
     this.video.srcObject = null;
 
     this.scene.setTransparentBackground(this.saved.transparent);
+    // Anything queued while AR drove the camera would otherwise fire on exit
+    // and fly away from the view being restored.
+    this.scene.cameraFlight = null;
     this.scene.camera.position.copy(this.saved.position);
     this.scene.camera.quaternion.copy(this.saved.quaternion);
     this.scene.controls.target.copy(this.saved.target);

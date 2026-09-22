@@ -1,7 +1,13 @@
-import { computeRedshiftHistogram, importCustomSDSSData } from '../data/sdssGenerator.js';
+import { computeRedshiftHistogram, importCustomSDSSData, MAX_CATALOG_Z } from '../data/sdssGenerator.js';
 import { fetchSimbadCatalog } from '../data/simbadSource.js';
+import { notify } from './notify.js';
 
 const SIMBAD_LABEL = 'SIMBAD';
+const MAX_CSV_BYTES = 50 * 1024 * 1024;
+// Must match the compact layout's media query in style.css.
+const COMPACT_QUERY = '(max-width: 1024px), (orientation: portrait)';
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 export class HUD {
   constructor(container, controller, scene) {
@@ -17,12 +23,11 @@ export class HUD {
     this.simbadActive = false;
     this.simbadCatalog = null;
     this.baseCatalog = null;
-    this.baseSourceLabel = 'SDSS DR18';
-    this.lastClickPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    this.baseSourceLabel = null;
 
     this.renderDOM();
     this.bindEvents();
-    this.bindMouseZoomEvents();
+    this.bindZoomEvents();
     this.bindKeyboardShortcuts();
 
     // Register controller listener
@@ -36,10 +41,10 @@ export class HUD {
       <!-- TOP HEADER BAR -->
       <header class="hud-header glass-card" id="card-header">
         <div class="header-left">
-          <div class="brand-badge">SDSS DR18</div>
+          <div class="brand-badge"></div>
           <div>
             <h1>Sloan Digital Sky Survey 3D Map</h1>
-            <p class="subtitle">Planck 2018 Cosmology • 240,000 Galaxies & Quasars</p>
+            <p class="subtitle"></p>
           </div>
         </div>
         <nav class="landmark-nav">
@@ -84,7 +89,7 @@ export class HUD {
 
       <!-- MINIMAL RECORDING DOCK (VISIBLE WHEN HUD IS HIDDEN) -->
       <div class="recording-dock glass-card hidden" id="recording-dock">
-        <span class="recording-indicator"><span class="rec-dot"></span> RECORDING MODE</span>
+        <span class="recording-indicator"><span class="rec-dot"></span> CLEAN VIEW</span>
         <button class="dock-btn" id="dock-play-pause" title="Play/Pause (Space)">⏸</button>
         <button class="dock-btn" id="dock-orbit" title="Toggle Auto-Orbit (O)">🎥 Orbit</button>
         <button class="dock-btn" id="dock-transparent" title="Toggle Transparent Background (T)">🌌 Alpha BG</button>
@@ -92,22 +97,14 @@ export class HUD {
         <button class="dock-btn exit-btn" id="dock-exit" title="Restore Full UI (H)">👁️ Show UI [H]</button>
       </div>
 
-      <!-- FLOATING MOUSE CLICK ZOOM POPOVER MENU -->
-      <div class="zoom-popover glass-card hidden" id="zoom-popover">
-        <div class="popover-title">Mouse Focus Target</div>
-        <div class="popover-actions">
-          <button class="popover-btn primary" id="popover-zoom-in">🔍 Smooth Zoom In</button>
-          <button class="popover-btn" id="popover-zoom-out">🔎 Smooth Zoom Out</button>
-          <button class="popover-btn close" id="popover-close">✕</button>
-        </div>
-      </div>
-
       <!-- TOP RIGHT: COSMOLOGY TELEMETRY & STATS -->
       <aside class="hud-telemetry glass-card" id="card-telemetry">
-        <div class="telemetry-header">
+        <details class="telemetry-details" id="telemetry-details" open>
+        <summary class="telemetry-header">
           <span class="pulse-dot"></span>
-          <span>Cosmic Frontier Live Telemetry</span>
-        </div>
+          <span>Live Telemetry</span>
+          <span class="telemetry-mini" id="stat-mini"></span>
+        </summary>
         <div class="telemetry-grid">
           <div class="stat-item">
             <span class="stat-label">Plotted Objects</span>
@@ -139,22 +136,24 @@ export class HUD {
             <span class="stat-value accent-gold" id="stat-lookback">0.00 — 3.45 Gyr ago</span>
           </div>
           <div class="shortcut-tips">
-            <span>Click/DblClick anywhere to Smooth Zoom • [T] Alpha BG • [H] Hide UI • [O] Orbit</span>
+            <span>Drag to orbit • Scroll to zoom • Double-click to fly in (Shift: out)</span>
+            <span>[Space] Play • [R] Reset • [F] Fullscreen • [H] Hide UI • [O] Orbit • [T] Alpha BG</span>
           </div>
         </div>
+        </details>
       </aside>
 
       <!-- BOTTOM LEFT: ONE-BY-ONE PLOTTING ENGINE & SPEED CONTROLS -->
       <section class="hud-plotting-controller glass-card" id="card-controller">
         <div class="controller-top-row">
           <div class="playback-controls">
-            <button class="control-btn play-pause-btn" id="btn-play-pause" title="Play / Pause Plotting (Space)">
+            <button class="control-btn play-pause-btn" id="btn-play-pause" type="button" title="Play / Pause Plotting (Space)">
               <span id="play-pause-icon">⏸</span> <span id="play-pause-label">Pause</span>
             </button>
-            <button class="control-btn" id="btn-step" title="Step +1 Galaxy">
+            <button class="control-btn" id="btn-step" type="button" title="Plot one more object">
               <span>+1</span> Step
             </button>
-            <button class="control-btn" id="btn-reset" title="Reset Plotting to 0 (R)">
+            <button class="control-btn" id="btn-reset" type="button" title="Reset Plotting to 0 (R)">
               <span>⟲</span> Reset
             </button>
           </div>
@@ -171,7 +170,7 @@ export class HUD {
 
         <!-- Timeline Scrubber -->
         <div class="scrubber-row">
-          <input type="range" id="slider-scrubber" class="cosmic-slider" min="0" max="1000" value="0" />
+          <input type="range" id="slider-scrubber" class="cosmic-slider" min="0" max="1000" value="0" aria-label="Plotting progress" />
           <span class="scrubber-pct" id="scrubber-pct-label">0.0%</span>
         </div>
 
@@ -195,8 +194,8 @@ export class HUD {
       <section class="hud-histogram glass-card" id="card-histogram">
         <div class="histogram-header">
           <div>
-            <h3>Redshift Distribution (z = 0.00 to 0.30)</h3>
-            <p class="hist-subtitle">Real-time object count vs comoving distance & redshift</p>
+            <h3>Redshift Distribution</h3>
+            <p class="hist-subtitle" id="hist-title">Plotted objects, z = 0.00 to 0.30</p>
           </div>
           <div class="hist-legend">
             <span class="legend-dot gal"></span> Galaxies
@@ -206,84 +205,64 @@ export class HUD {
         <div class="histogram-svg-wrapper">
           <svg id="histogram-svg" viewBox="0 0 400 110" preserveAspectRatio="none"></svg>
         </div>
-        <div class="filter-controls">
-          <label>Redshift Slice Filter:</label>
+        <form class="filter-controls" id="filter-form" novalidate>
+          <span>Redshift slice</span>
           <div class="range-inputs">
-            <span>min z:</span>
-            <input type="number" id="input-min-z" class="glass-input" step="0.01" min="0.00" max="6.9" value="0.00" />
-            <span>max z:</span>
-            <input type="number" id="input-max-z" class="glass-input" step="0.01" min="0.05" max="7.0" value="0.30" />
-            <button class="control-btn small" id="btn-apply-filter">Slice</button>
-            <button class="control-btn small" id="btn-reset-filter">Full Scope (z=7)</button>
+            <label for="input-min-z">min z</label>
+            <input type="number" id="input-min-z" class="glass-input" step="0.01" min="0" max="${MAX_CATALOG_Z}" value="0.00" inputmode="decimal" />
+            <label for="input-max-z">max z</label>
+            <input type="number" id="input-max-z" class="glass-input" step="0.01" min="0" max="${MAX_CATALOG_Z}" value="0.30" inputmode="decimal" />
+            <button class="control-btn small" id="btn-apply-filter" type="submit">Slice</button>
+            <button class="control-btn small" id="btn-reset-filter" type="button" title="Show every redshift, z = 0 to ${MAX_CATALOG_Z}">Full range</button>
           </div>
-        </div>
+        </form>
       </section>
 
-      <!-- CSV IMPORT MODAL -->
-      <div class="modal-backdrop hidden" id="csv-modal">
-        <div class="glass-card modal-box">
-          <h2>Import Custom SDSS SQL Query CSV</h2>
+      <!-- CSV IMPORT: a native dialog brings Escape, focus handling and a backdrop -->
+      <dialog class="glass-card csv-dialog" id="csv-modal" aria-labelledby="csv-title">
+        <div class="modal-box">
+          <h2 id="csv-title">Import Custom SDSS SQL Query CSV</h2>
           <p class="modal-desc">
-            Paste your SDSS DR18 CSV export below. Must contain columns: <code>ra</code>, <code>dec</code>, <code>z</code>, and optionally <code>class</code> ('GALAXY' or 'QSO').
+            Choose a file or paste an SDSS CSV export. Needs <code>ra</code>, <code>dec</code> and <code>z</code> (or <code>redshift</code>) columns, and optionally <code>class</code> ('GALAXY' or 'QSO').
           </p>
-          <textarea id="csv-textarea" class="glass-textarea" placeholder="ra,dec,z,class&#10;145.2,12.3,0.045,GALAXY&#10;218.1,46.2,0.056,GALAXY..."></textarea>
+          <input type="file" id="csv-file" class="glass-file" accept=".csv,text/csv,text/plain" />
+          <textarea id="csv-textarea" class="glass-textarea" spellcheck="false" aria-label="CSV data" placeholder="ra,dec,z,class&#10;145.2,12.3,0.045,GALAXY&#10;218.1,46.2,0.056,GALAXY..."></textarea>
+          <p class="modal-error" id="csv-error" role="alert"></p>
           <div class="modal-actions">
-            <button class="control-btn primary" id="btn-confirm-import">Load & Visualize</button>
-            <button class="control-btn" id="btn-close-modal">Cancel</button>
+            <button class="control-btn" id="btn-close-modal" type="button">Cancel</button>
+            <button class="control-btn primary" id="btn-confirm-import" type="button">Load & Visualize</button>
           </div>
         </div>
-      </div>
+      </dialog>
     `;
 
     this.container.appendChild(el);
+    this.histogramSvg = el.querySelector('#histogram-svg');
+
+    // On a phone the telemetry card would sit over the middle of the map.
+    el.querySelector('#telemetry-details').open = !window.matchMedia(COMPACT_QUERY).matches;
   }
 
   bindEvents() {
-    // 1. Play / Pause
-    const playPauseBtn = document.getElementById('btn-play-pause');
-    const playPauseIcon = document.getElementById('play-pause-icon');
-    const playPauseLabel = document.getElementById('play-pause-label');
-    const dockPlayPause = document.getElementById('dock-play-pause');
+    const $ = (id) => document.getElementById(id);
 
-    const togglePlayPauseUI = () => {
-      const isPlaying = this.controller.togglePlay();
-      playPauseIcon.textContent = isPlaying ? '⏸' : '▶';
-      playPauseLabel.textContent = isPlaying ? 'Pause' : 'Play';
-      dockPlayPause.textContent = isPlaying ? '⏸' : '▶';
-      playPauseBtn.classList.toggle('paused', !isPlaying);
-    };
+    // 1. Playback. The buttons only drive the controller; the play/pause label
+    //    is painted from its reports, so every path to a state change agrees.
+    const togglePlay = () => this.controller.togglePlay();
+    $('btn-play-pause').addEventListener('click', togglePlay);
+    $('dock-play-pause').addEventListener('click', togglePlay);
+    $('btn-step').addEventListener('click', () => this.controller.step(1));
+    $('btn-reset').addEventListener('click', () => this.controller.reset());
 
-    playPauseBtn.addEventListener('click', togglePlayPauseUI);
-    dockPlayPause.addEventListener('click', togglePlayPauseUI);
-
-    // 2. Step
-    document.getElementById('btn-step').addEventListener('click', () => {
-      this.controller.step(1);
-      playPauseIcon.textContent = '▶';
-      playPauseLabel.textContent = 'Play';
-      dockPlayPause.textContent = '▶';
-    });
-
-    // 3. Reset
-    document.getElementById('btn-reset').addEventListener('click', () => {
-      this.controller.reset();
-      playPauseIcon.textContent = '▶';
-      playPauseLabel.textContent = 'Play';
-      dockPlayPause.textContent = '▶';
-    });
-
-    // 4. Scrubber
-    const scrubber = document.getElementById('slider-scrubber');
-    scrubber.addEventListener('input', e => {
+    // 2. Scrubber
+    $('slider-scrubber').addEventListener('input', e => {
       const val = parseFloat(e.target.value);
-      const targetCount = (val / 1000.0) * this.controller.totalCount;
-      this.controller.setCount(targetCount);
+      this.controller.setCount((val / 1000.0) * this.controller.totalCount);
     });
 
-    // 5. Speed pills
+    // 3. Speed pills
     const speedPills = document.querySelectorAll('.speed-pill');
-    const speedValueLabel = document.getElementById('speed-label-value');
-
+    const speedValueLabel = $('speed-label-value');
     speedPills.forEach(pill => {
       pill.addEventListener('click', () => {
         speedPills.forEach(p => p.classList.remove('active'));
@@ -301,101 +280,145 @@ export class HUD {
       });
     });
 
-    // 6. Order selector
-    document.getElementById('select-order').addEventListener('change', e => {
-      this.controller.setOrder(e.target.value);
+    // 4. Order selector
+    $('select-order').addEventListener('change', e => this.controller.setOrder(e.target.value));
+
+    // 5. Landmark tour buttons
+    this.landmarkBtns = document.querySelectorAll('.landmark-btn[data-landmark]');
+    this.landmarkBtns.forEach(btn => {
+      btn.addEventListener('click', () => this.flyToLandmark(btn.getAttribute('data-landmark')));
     });
 
-    // 7. Landmark tour buttons
-    const landmarkBtns = document.querySelectorAll('.landmark-btn[data-landmark]');
-    landmarkBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        landmarkBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const name = btn.getAttribute('data-landmark');
-        this.scene.flyToLandmark(name);
-      });
+    // 6. Fullscreen: absent where the page cannot go fullscreen (iPhone Safari),
+    //    and kept in step with Esc and the browser's own controls.
+    const fullscreenBtn = $('btn-fullscreen');
+    if (!document.fullscreenEnabled) fullscreenBtn.hidden = true;
+    fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+    document.addEventListener('fullscreenchange', () => {
+      fullscreenBtn.classList.toggle('active', Boolean(document.fullscreenElement));
     });
 
-    // 8. Fullscreen / Cinema mode
-    document.getElementById('btn-fullscreen').addEventListener('click', () => {
-      this.toggleFullscreen();
+    // 7. Auto-orbit and transparent background
+    $('btn-auto-orbit').addEventListener('click', () => this.toggleOrbit());
+    $('dock-orbit').addEventListener('click', () => this.toggleOrbit());
+    $('btn-transparent-bg').addEventListener('click', () => this.toggleTransparent());
+    $('dock-transparent').addEventListener('click', () => this.toggleTransparent());
+
+    // 8. Hide / Show UI (clean view for screen recording)
+    $('btn-hide-ui').addEventListener('click', () => this.toggleUIVisibility());
+    $('dock-exit').addEventListener('click', () => this.toggleUIVisibility());
+
+    // 9. Redshift slice. A form, so Enter in either box applies it.
+    $('filter-form').addEventListener('submit', e => {
+      e.preventDefault();
+      this.setRedshiftFilter($('input-min-z').value, $('input-max-z').value);
     });
+    $('btn-reset-filter').addEventListener('click', () => this.setRedshiftFilter(0, MAX_CATALOG_Z));
 
-    // 9. Auto-Orbit toggle
-    const orbitBtn = document.getElementById('btn-auto-orbit');
-    const dockOrbit = document.getElementById('dock-orbit');
-    const toggleOrbitUI = () => {
-      const isOrbiting = this.scene.toggleAutoOrbit();
-      orbitBtn.classList.toggle('active', isOrbiting);
-      dockOrbit.classList.toggle('active', isOrbiting);
-    };
-    orbitBtn.addEventListener('click', toggleOrbitUI);
-    dockOrbit.addEventListener('click', toggleOrbitUI);
+    // 10. AR mode
+    $('btn-enter-ar').addEventListener('click', () => this.onEnterAR?.());
 
-    // 10. Transparent Background toggle
-    const bgTransBtn = document.getElementById('btn-transparent-bg');
-    const dockTransBtn = document.getElementById('dock-transparent');
-    const toggleTransUI = () => {
-      const isTrans = this.scene.toggleTransparentBackground();
-      bgTransBtn.classList.toggle('active', isTrans);
-      dockTransBtn.classList.toggle('active', isTrans);
-    };
-    bgTransBtn.addEventListener('click', toggleTransUI);
-    dockTransBtn.addEventListener('click', toggleTransUI);
+    // 11. CSV import
+    this.bindCsvDialog();
 
-    // 11. Hide / Show UI (Recording Mode)
-    const btnHideUI = document.getElementById('btn-hide-ui');
-    const dockExit = document.getElementById('dock-exit');
-    btnHideUI.addEventListener('click', () => this.toggleUIVisibility());
-    dockExit.addEventListener('click', () => this.toggleUIVisibility());
+    // 12. Live SIMBAD catalog push button
+    this.simbadBtn = $('btn-load-simbad');
+    this.simbadBtn.addEventListener('click', () => this.toggleSimbad());
+  }
 
-    // 12. Redshift Filter Slice
-    document.getElementById('btn-apply-filter').addEventListener('click', () => {
-      const minInput = document.getElementById('input-min-z').value;
-      const minVal = minInput !== '' ? parseFloat(minInput) : 0.00;
-      const maxVal = parseFloat(document.getElementById('input-max-z').value) || 0.30;
-      this.minZFilter = minVal;
-      this.maxZFilter = maxVal;
-      this.scene.setRedshiftRange(minVal, maxVal);
-      this.drawHistogram();
-    });
+  bindCsvDialog() {
+    const dialog = document.getElementById('csv-modal');
+    const textarea = document.getElementById('csv-textarea');
+    const fileInput = document.getElementById('csv-file');
+    const error = document.getElementById('csv-error');
+    const confirm = document.getElementById('btn-confirm-import');
 
-    document.getElementById('btn-reset-filter').addEventListener('click', () => {
-      this.minZFilter = 0.00;
-      this.maxZFilter = 7.0;
-      document.getElementById('input-min-z').value = '0.00';
-      document.getElementById('input-max-z').value = '7.0';
-      this.scene.setRedshiftRange(0.00, 7.0);
-      this.drawHistogram();
-    });
-
-    // 13. AR mode
-    document.getElementById('btn-enter-ar').addEventListener('click', () => this.onEnterAR?.());
-
-
-    // 14. CSV modal
-    const csvModal = document.getElementById('csv-modal');
     document.getElementById('btn-import-csv').addEventListener('click', () => {
-      csvModal.classList.remove('hidden');
+      error.textContent = '';
+      dialog.showModal();
     });
-    document.getElementById('btn-close-modal').addEventListener('click', () => {
-      csvModal.classList.add('hidden');
+    document.getElementById('btn-close-modal').addEventListener('click', () => dialog.close());
+    // The dialog box is padded by its inner wrapper, so a click that lands on
+    // the dialog element itself is on the backdrop.
+    dialog.addEventListener('click', e => {
+      if (e.target === dialog) dialog.close();
     });
-    document.getElementById('btn-confirm-import').addEventListener('click', () => {
-      const csvText = document.getElementById('csv-textarea').value;
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      if (file.size > MAX_CSV_BYTES) {
+        error.textContent = `That file is ${(file.size / 1048576).toFixed(0)} MB; the limit is ${MAX_CSV_BYTES / 1048576} MB.`;
+        fileInput.value = '';
+        return;
+      }
       try {
-        const importedData = importCustomSDSSData(csvText);
-        this.loadCatalog(importedData, 'CSV IMPORT');
-        csvModal.classList.add('hidden');
+        textarea.value = await file.text();
+        error.textContent = '';
       } catch (err) {
-        alert("Error importing CSV: " + err.message);
+        error.textContent = `Could not read the file: ${err.message}`;
       }
     });
 
-    // 14. Live SIMBAD catalog push button
-    this.simbadBtn = document.getElementById('btn-load-simbad');
-    this.simbadBtn.addEventListener('click', () => this.toggleSimbad());
+    confirm.addEventListener('click', () => {
+      try {
+        const importedData = importCustomSDSSData(textarea.value);
+        this.loadCatalog(importedData, 'CSV IMPORT');
+        dialog.close();
+        // Named objects ride along with every catalog; report only the file's rows.
+        const rows = importedData.count - importedData.named.length;
+        notify(`Loaded ${rows.toLocaleString()} objects from CSV.`);
+      } catch (err) {
+        // Kept in the dialog, next to the data that caused it.
+        error.textContent = err.message;
+      }
+    });
+  }
+
+  /** Validates, clamps and applies a redshift slice, then writes back what was applied. */
+  setRedshiftFilter(minInput, maxInput) {
+    const min = minInput === '' ? 0 : Number(minInput);
+    const max = maxInput === '' ? MAX_CATALOG_Z : Number(maxInput);
+    const minInputEl = document.getElementById('input-min-z');
+    const maxInputEl = document.getElementById('input-max-z');
+
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      notify('Redshift limits must be numbers.', { error: true });
+    } else if (Math.max(min, 0) >= Math.min(max, MAX_CATALOG_Z)) {
+      notify('The minimum redshift has to be below the maximum.', { error: true });
+    } else {
+      this.minZFilter = clamp(min, 0, MAX_CATALOG_Z);
+      this.maxZFilter = clamp(max, 0, MAX_CATALOG_Z);
+      this.scene.setRedshiftRange(this.minZFilter, this.maxZFilter);
+    }
+
+    minInputEl.value = this.minZFilter.toFixed(2);
+    maxInputEl.value = this.maxZFilter.toFixed(2);
+    document.getElementById('hist-title').textContent =
+      `Plotted objects, z = ${this.minZFilter.toFixed(2)} to ${this.maxZFilter.toFixed(2)}`;
+    this.drawHistogram();
+  }
+
+  flyToLandmark(name) {
+    this.landmarkBtns.forEach(b => b.classList.toggle('active', b.getAttribute('data-landmark') === name));
+    // Quasar Dawn is the z > 4 frontier, which the default 0–0.3 slice hides:
+    // the camera used to fly out to an empty sky.
+    if (name === 'quasar_dawn' && this.maxZFilter < MAX_CATALOG_Z) {
+      this.setRedshiftFilter(this.minZFilter, MAX_CATALOG_Z);
+    }
+    this.scene.flyToLandmark(name);
+  }
+
+  toggleOrbit() {
+    const isOrbiting = this.scene.toggleAutoOrbit();
+    document.getElementById('btn-auto-orbit').classList.toggle('active', isOrbiting);
+    document.getElementById('dock-orbit').classList.toggle('active', isOrbiting);
+  }
+
+  toggleTransparent() {
+    const isTrans = this.scene.toggleTransparentBackground();
+    document.getElementById('btn-transparent-bg').classList.toggle('active', isTrans);
+    document.getElementById('dock-transparent').classList.toggle('active', isTrans);
   }
 
   /**
@@ -422,11 +445,12 @@ export class HUD {
       });
       this.loadCatalog(this.simbadCatalog, SIMBAD_LABEL);
 
-      if (this.simbadCatalog.failedBands > 0) {
-        alert(`Loaded ${this.simbadCatalog.count.toLocaleString()} SIMBAD objects, but ${this.simbadCatalog.failedBands} of the query bands failed.`);
-      }
+      const { count, failedBands } = this.simbadCatalog;
+      notify(failedBands > 0
+        ? `Loaded ${count.toLocaleString()} SIMBAD objects, but ${failedBands} of the query bands failed.`
+        : `Loaded ${count.toLocaleString()} real objects from SIMBAD.`);
     } catch (err) {
-      alert("SIMBAD load failed: " + err.message);
+      notify(`SIMBAD load failed: ${err.message}`, { error: true });
       this.renderSimbadButton();
     } finally {
       button.disabled = false;
@@ -474,123 +498,50 @@ export class HUD {
     }
   }
 
-  bindMouseZoomEvents() {
-    const popover = document.getElementById('zoom-popover');
-    const zoomInBtn = document.getElementById('popover-zoom-in');
-    const zoomOutBtn = document.getElementById('popover-zoom-out');
-    const popoverClose = document.getElementById('popover-close');
-
-    const showPopoverAt = (x, y) => {
-      this.lastClickPos = { x, y };
-      popover.style.left = `${Math.min(x, window.innerWidth - 180)}px`;
-      popover.style.top = `${Math.min(y, window.innerHeight - 120)}px`;
-      popover.classList.remove('hidden');
-    };
-
-    const hidePopover = () => {
-      popover.classList.add('hidden');
-    };
-
-    zoomInBtn.addEventListener('click', () => {
-      this.scene.zoomAtScreenPoint(this.lastClickPos.x, this.lastClickPos.y, 'in');
-      hidePopover();
-    });
-
-    zoomOutBtn.addEventListener('click', () => {
-      this.scene.zoomAtScreenPoint(this.lastClickPos.x, this.lastClickPos.y, 'out');
-      hidePopover();
-    });
-
-    popoverClose.addEventListener('click', hidePopover);
-
-    // Canvas Mouse Click Listener for Raycast Zoom
-    let isMouseDown = false;
-    let mouseDownPos = { x: 0, y: 0 };
-
-    window.addEventListener('mousedown', e => {
-      if (['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A'].includes(e.target.tagName)) return;
-      if (e.target.closest('.glass-card') && !e.target.closest('#zoom-popover')) {
-        hidePopover();
-        return;
-      }
-      isMouseDown = true;
-      mouseDownPos = { x: e.clientX, y: e.clientY };
-    });
-
-    window.addEventListener('mouseup', e => {
-      if (!isMouseDown) return;
-      isMouseDown = false;
-
-      // Only trigger click popover if mouse didn't drag (distance < 6px)
-      const dist = Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y);
-      if (dist < 6) {
-        // A named object takes the click instead, and opens its own detail card
-        if (this.shouldSuppressClick?.(e)) {
-          hidePopover();
-          return;
-        }
-        // If clicking on empty canvas or in recording mode
-        showPopoverAt(e.clientX, e.clientY);
-      }
-    });
-
-    // Double-Click on Canvas -> Instant Smooth Zoom In at Mouse Position!
+  bindZoomEvents() {
+    // Double-click on the map flies in at the pointer; Shift or Alt flies out.
+    // A single click is left to the named-object layer, which selects labels.
     window.addEventListener('dblclick', e => {
-      if (['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A'].includes(e.target.tagName)) return;
-      if (e.target.closest('.glass-card')) return;
+      if (e.target !== this.scene.renderer.domElement) return;
+      if (this.container.classList.contains('ar-active')) return;
       e.preventDefault();
       const direction = e.shiftKey || e.altKey ? 'out' : 'in';
       this.scene.zoomAtScreenPoint(e.clientX, e.clientY, direction);
-      hidePopover();
     });
   }
 
   bindKeyboardShortcuts() {
-    window.addEventListener('keydown', e => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    const actions = {
+      f: () => this.toggleFullscreen(),
+      h: () => this.toggleUIVisibility(),
+      o: () => this.toggleOrbit(),
+      t: () => this.toggleTransparent(),
+      r: () => this.controller.reset(),
+      ' ': () => this.controller.togglePlay()
+    };
 
-      const key = e.key.toLowerCase();
-      if (key === 'f') {
-        e.preventDefault();
-        this.toggleFullscreen();
-      } else if (key === 'h') {
-        e.preventDefault();
-        this.toggleUIVisibility();
-      } else if (key === 'o') {
-        e.preventDefault();
-        const isOrbiting = this.scene.toggleAutoOrbit();
-        document.getElementById('btn-auto-orbit').classList.toggle('active', isOrbiting);
-        document.getElementById('dock-orbit').classList.toggle('active', isOrbiting);
-      } else if (key === 't') {
-        e.preventDefault();
-        const isTrans = this.scene.toggleTransparentBackground();
-        document.getElementById('btn-transparent-bg').classList.toggle('active', isTrans);
-        document.getElementById('dock-transparent').classList.toggle('active', isTrans);
-      } else if (e.code === 'Space') {
-        e.preventDefault();
-        const isPlaying = this.controller.togglePlay();
-        document.getElementById('play-pause-icon').textContent = isPlaying ? '⏸' : '▶';
-        document.getElementById('play-pause-label').textContent = isPlaying ? 'Pause' : 'Play';
-        document.getElementById('dock-play-pause').textContent = isPlaying ? '⏸' : '▶';
-        document.getElementById('btn-play-pause').classList.toggle('paused', !isPlaying);
-      } else if (key === 'r') {
-        e.preventDefault();
-        this.controller.reset();
-        document.getElementById('play-pause-icon').textContent = '▶';
-        document.getElementById('play-pause-label').textContent = 'Play';
-        document.getElementById('dock-play-pause').textContent = '▶';
-      }
+    window.addEventListener('keydown', e => {
+      // Ctrl/Cmd+R must still reload and Ctrl/Cmd+F still find.
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if (e.target.closest?.('input, textarea, select, dialog')) return;
+      // A focused button handles its own Space; toggling here as well undid it.
+      if (e.key === ' ' && e.target.closest?.('button')) return;
+      // The HUD is hidden in AR, so its shortcuts would act on nothing visible.
+      if (this.container.classList.contains('ar-active')) return;
+
+      const action = actions[e.key.toLowerCase()];
+      if (!action) return;
+      e.preventDefault();
+      action();
     });
   }
 
   toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-      document.getElementById('btn-fullscreen').classList.add('active');
-    } else {
-      document.exitFullscreen().catch(() => {});
-      document.getElementById('btn-fullscreen').classList.remove('active');
-    }
+    if (!document.fullscreenEnabled) return;
+    const request = document.fullscreenElement
+      ? document.exitFullscreen()
+      : document.documentElement.requestFullscreen();
+    request.catch(err => notify(`Fullscreen unavailable: ${err.message}`, { error: true }));
   }
 
   toggleUIVisibility() {
@@ -598,16 +549,26 @@ export class HUD {
     const cards = ['card-header', 'card-telemetry', 'card-controller', 'card-histogram', 'named-layer'];
     cards.forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.classList.toggle('hidden-hud', this.uiHidden);
+      if (!el) return;
+      el.classList.toggle('hidden-hud', this.uiHidden);
+      // Invisible controls must not stay reachable with Tab.
+      el.inert = this.uiHidden;
     });
-    const dock = document.getElementById('recording-dock');
-    if (dock) dock.classList.toggle('hidden', !this.uiHidden);
-    const popover = document.getElementById('zoom-popover');
-    if (popover) popover.classList.add('hidden');
+    document.getElementById('recording-dock')?.classList.toggle('hidden', !this.uiHidden);
+  }
+
+  syncPlayState(isPlaying) {
+    document.getElementById('play-pause-icon').textContent = isPlaying ? '⏸' : '▶';
+    document.getElementById('play-pause-label').textContent = isPlaying ? 'Pause' : 'Play';
+    document.getElementById('dock-play-pause').textContent = isPlaying ? '⏸' : '▶';
+    document.getElementById('btn-play-pause').classList.toggle('paused', !isPlaying);
   }
 
   updateTelemetry(stats) {
-    document.getElementById('stat-count').textContent = `${stats.currentCount.toLocaleString()} / ${stats.totalCount.toLocaleString()}`;
+    const count = `${stats.currentCount.toLocaleString()} / ${stats.totalCount.toLocaleString()}`;
+    document.getElementById('stat-count').textContent = count;
+    document.getElementById('stat-mini').textContent = count;
+    document.getElementById('dock-count').textContent = count;
     document.getElementById('stat-galaxies').textContent = stats.galaxiesCount.toLocaleString();
     document.getElementById('stat-qsos').textContent = stats.qsosCount.toLocaleString();
     document.getElementById('stat-progress-bar').style.width = `${(stats.progressNorm * 100).toFixed(1)}%`;
@@ -618,40 +579,37 @@ export class HUD {
     }
     document.getElementById('scrubber-pct-label').textContent = `${(stats.progressNorm * 100).toFixed(1)}%`;
 
+    const distance = stats.distanceMpc >= 1000
+      ? `${(stats.distanceMpc / 1000).toFixed(2)} Gpc`
+      : `${stats.distanceMpc.toFixed(0)} Mpc`;
     document.getElementById('stat-redshift').textContent = `z = 0.00 — ${stats.currentMaxZ.toFixed(2)}`;
-    document.getElementById('stat-distance').textContent = `0 Mpc — ${(stats.distanceMpc > 1000 ? (stats.distanceMpc / 1000).toFixed(2) + ' Gpc' : stats.distanceMpc.toFixed(0) + ' Mpc')}`;
+    document.getElementById('stat-distance').textContent = `0 Mpc — ${distance}`;
     document.getElementById('stat-lookback').textContent = `0.00 — ${stats.lookbackGyr.toFixed(2)} Gyr ago`;
 
-    // Update minimal recording dock count
-    const dockCount = document.getElementById('dock-count');
-    if (dockCount) {
-      dockCount.textContent = `${stats.currentCount.toLocaleString()} / ${stats.totalCount.toLocaleString()}`;
-    }
-
-    // Redraw histogram with current progress
-    this.drawHistogram(stats.currentCount);
+    this.syncPlayState(stats.isPlaying);
+    this.drawHistogram();
   }
 
-  drawHistogram(plottedLimit = null) {
-    const svg = document.getElementById('histogram-svg');
-    if (!svg || !this.controller.redshifts) return;
-
-    const limit = plottedLimit !== null ? plottedLimit : this.controller.currentCount;
-    const sampleRedshifts = this.controller.redshifts.subarray(0, limit);
-    const sampleQSO = this.controller.isQSOArray.subarray(0, limit);
+  drawHistogram() {
+    const svg = this.histogramSvg;
+    const order = this.controller.order;
+    // Hidden on phones; scanning every point for a chart nobody sees is waste.
+    if (!svg || !order || !svg.getClientRects().length) return;
 
     const hist = computeRedshiftHistogram(
-      sampleRedshifts,
-      sampleQSO,
+      this.controller.redshifts,
+      this.controller.isQSOArray,
+      order,
+      this.controller.progress,
       this.minZFilter,
       this.maxZFilter,
       50
     );
 
-    const maxBinVal = Math.max(
-      10,
-      ...Array.from(hist.galaxyBins).map((v, i) => v + hist.qsoBins[i])
-    );
+    let maxBinVal = 10;
+    for (let i = 0; i < hist.numBins; i++) {
+      maxBinVal = Math.max(maxBinVal, hist.galaxyBins[i] + hist.qsoBins[i]);
+    }
 
     const width = 400;
     const height = 110;
@@ -660,13 +618,9 @@ export class HUD {
     let svgHTML = '';
 
     for (let i = 0; i < hist.numBins; i++) {
-      const gVal = hist.galaxyBins[i];
-      const qVal = hist.qsoBins[i];
       const x = i * barWidth;
-
-      const gHeight = (gVal / maxBinVal) * (height - 18);
-      const qHeight = (qVal / maxBinVal) * (height - 18);
-
+      const gHeight = (hist.galaxyBins[i] / maxBinVal) * (height - 18);
+      const qHeight = (hist.qsoBins[i] / maxBinVal) * (height - 18);
       const yGal = height - gHeight;
       const yQSO = yGal - qHeight;
 
@@ -679,8 +633,8 @@ export class HUD {
     }
 
     svgHTML += `<line x1="0" y1="${height - 1}" x2="${width}" y2="${height - 1}" stroke="#334466" stroke-width="1" />`;
-    svgHTML += `<text x="5" y="${height - 4}" class="hist-label">z=${this.minZFilter}</text>`;
-    svgHTML += `<text x="${width - 40}" y="${height - 4}" class="hist-label">z=${this.maxZFilter}</text>`;
+    svgHTML += `<text x="5" y="${height - 4}" class="hist-label">z=${this.minZFilter.toFixed(2)}</text>`;
+    svgHTML += `<text x="${width - 5}" y="${height - 4}" class="hist-label" text-anchor="end">z=${this.maxZFilter.toFixed(2)}</text>`;
 
     svg.innerHTML = svgHTML;
   }

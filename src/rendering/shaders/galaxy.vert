@@ -13,7 +13,8 @@ uniform float uHDRExposure;
 uniform vec3 uHighlightCenter;
 uniform float uHighlightRadius;
 uniform float uHighlightActive;
-uniform float uPlotSpeed; // Galaxies per second
+uniform float uSpawnWindow; // Plot progress over which a new point flashes
+uniform float uPixelRatio;  // Point sizes are CSS pixels; gl_PointSize is device pixels
 uniform float uTrailAmount; // 0 = still sky, 1 = full star streaks
 
 varying float vColorParam;
@@ -57,13 +58,12 @@ void main() {
   float sizeDistFactor = clamp(450.0 / max(dist, 8.0), 0.45, 5.0);
   float ptSize = baseSize * sizeDistFactor;
 
-  // 5. Super Slow Motion & Standard Birth Flash Effect
-  // In Super Slow-Mo (e.g., speed <= 25/sec), make the birth starburst window wider and dramatic
-  float spawnWindow = clamp(2.5 / max(1.0, uPlotSpeed), 0.002, 0.06);
+  // 5. Birth flash. The window is sized on the CPU from the speed, so a flash
+  // lasts a set time however fast the plot runs.
   float timeSinceSpawn = (uPlotProgress - aSpawnOrder);
   float flash = 0.0;
-  if (timeSinceSpawn >= 0.0 && timeSinceSpawn < spawnWindow) {
-    float normFlash = 1.0 - (timeSinceSpawn / spawnWindow);
+  if (timeSinceSpawn >= 0.0 && timeSinceSpawn < uSpawnWindow) {
+    float normFlash = 1.0 - (timeSinceSpawn / uSpawnWindow);
     // Smooth quadratic pulse
     flash = pow(normFlash, 1.5);
     // Expand point size dramatically on spawn for a supernova creation burst!
@@ -93,6 +93,6 @@ void main() {
   // scales its sampling back by the same factor, so the star keeps its width
   // and only gains length.
   float widen = 1.0 + uTrailAmount * 5.0;
-  gl_PointSize = clamp(ptSize * widen, 1.5, 48.0 * widen);
+  gl_PointSize = clamp(ptSize * widen, 1.5, 48.0 * widen) * uPixelRatio;
   gl_Position = projectionMatrix * mvPosition;
 }

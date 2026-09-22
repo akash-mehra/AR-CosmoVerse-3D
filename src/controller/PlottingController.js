@@ -1,5 +1,8 @@
 import { comovingDistanceMpc, lookbackTimeGyr } from '../cosmology/planck18.js';
 
+// Telemetry scans every point, so while playing it reports at most this often.
+const NOTIFY_INTERVAL_MS = 125;
+
 export class PlottingController {
   constructor(scene) {
     this.scene = scene;
@@ -9,6 +12,7 @@ export class PlottingController {
     this.isPlaying = true;
     this.plottingOrder = 'redshift';
     this.onProgressCallbacks = [];
+    this.lastNotifyAt = 0;
 
     // Cached references for fast statistics
     this.redshifts = null;
@@ -21,50 +25,64 @@ export class PlottingController {
     this.redshifts = catalogData.redshifts;
     this.isQSOArray = catalogData.isQSOArray;
     this.currentCount = 0;
+    // A new dataset replays from the start. Staying paused here left an empty
+    // map after every catalog swap made while paused.
+    this.isPlaying = true;
 
     // Apply initial order
     this.scene.setPlottingOrder(this.plottingOrder);
     this.scene.setPlotProgress(0.0);
     this.scene.setPlotSpeed(this.speedPtsPerSec);
-    this.notifyProgress();
+    this.notifyProgress(true);
   }
 
   onProgress(callback) {
     this.onProgressCallbacks.push(callback);
   }
 
-  notifyProgress() {
+  /** Spawn order of every point under the current plotting order. */
+  get order() {
+    return this.catalogData?.orders[this.plottingOrder] ?? null;
+  }
+
+  get progress() {
+    return this.totalCount ? Math.min(1.0, this.currentCount / this.totalCount) : 0;
+  }
+
+  /**
+   * Telemetry for the points actually on screen. Spawn orders are ranks, so a
+   * point is plotted exactly when its order is at or below the progress — the
+   * same test the vertex shader applies. One O(n) pass, so it is throttled
+   * while playing; state changes pass `force` and report immediately.
+   */
+  notifyProgress(force = false) {
     if (!this.totalCount) return;
-    const norm = Math.min(1.0, this.currentCount / this.totalCount);
-    const intCount = Math.floor(this.currentCount);
+    const now = performance.now();
+    if (!force && now - this.lastNotifyAt < NOTIFY_INTERVAL_MS) return;
+    this.lastNotifyAt = now;
 
-    // Approximate frontier statistics based on current progress
-    let currentMaxZ = 0.02;
-    let galaxiesCount = 0;
+    const progress = this.progress;
+    const order = this.order;
+    const { redshifts, isQSOArray } = this;
+    let plotted = 0;
     let qsosCount = 0;
-
-    if (this.plottingOrder === 'redshift') {
-      const idx = Math.min(Math.max(0, intCount - 1), this.totalCount - 1);
-      currentMaxZ = this.redshifts ? this.redshifts[idx] : 0.02;
-    } else {
-      currentMaxZ = Math.min(7.0, 0.02 + norm * 6.98);
+    let currentMaxZ = 0;
+    for (let i = 0; i < order.length; i++) {
+      if (order[i] > progress) continue;
+      plotted++;
+      if (isQSOArray[i]) qsosCount++;
+      if (redshifts[i] > currentMaxZ) currentMaxZ = redshifts[i];
     }
 
-    galaxiesCount = Math.round(intCount * 0.78);
-    qsosCount = intCount - galaxiesCount;
-
-    const distMpc = comovingDistanceMpc(currentMaxZ);
-    const lookbackGyr = lookbackTimeGyr(currentMaxZ);
-
     const stats = {
-      currentCount: intCount,
+      currentCount: plotted,
       totalCount: this.totalCount,
-      progressNorm: norm,
-      galaxiesCount,
+      progressNorm: progress,
+      galaxiesCount: plotted - qsosCount,
       qsosCount,
       currentMaxZ,
-      distanceMpc: distMpc,
-      lookbackGyr,
+      distanceMpc: comovingDistanceMpc(currentMaxZ),
+      lookbackGyr: lookbackTimeGyr(currentMaxZ),
       isPlaying: this.isPlaying,
       speedPtsPerSec: this.speedPtsPerSec,
       order: this.plottingOrder
@@ -80,7 +98,7 @@ export class PlottingController {
     if (this.scene) {
       this.scene.setPlotSpeed(ptsPerSec);
     }
-    this.notifyProgress();
+    this.notifyProgress(true);
   }
 
   setOrder(orderKey) {
@@ -89,23 +107,16 @@ export class PlottingController {
     if (this.scene) {
       this.scene.setPlottingOrder(orderKey);
     }
-    this.notifyProgress();
+    this.notifyProgress(true);
   }
 
   togglePlay() {
+    // Play at the end starts over; otherwise it stops again on the next frame
+    // and the button looks broken.
+    if (!this.isPlaying && this.currentCount >= this.totalCount) this.setCount(0);
     this.isPlaying = !this.isPlaying;
-    this.notifyProgress();
+    this.notifyProgress(true);
     return this.isPlaying;
-  }
-
-  play() {
-    this.isPlaying = true;
-    this.notifyProgress();
-  }
-
-  pause() {
-    this.isPlaying = false;
-    this.notifyProgress();
   }
 
   reset() {
@@ -114,7 +125,7 @@ export class PlottingController {
     if (this.scene) {
       this.scene.setPlotProgress(0.0);
     }
-    this.notifyProgress();
+    this.notifyProgress(true);
   }
 
   step(numPts = 1) {
@@ -123,7 +134,7 @@ export class PlottingController {
     if (this.scene) {
       this.scene.setPlotProgress(this.currentCount / this.totalCount);
     }
-    this.notifyProgress();
+    this.notifyProgress(true);
   }
 
   setCount(newCount) {
@@ -131,7 +142,7 @@ export class PlottingController {
     if (this.scene) {
       this.scene.setPlotProgress(this.currentCount / this.totalCount);
     }
-    this.notifyProgress();
+    this.notifyProgress(true);
   }
 
   setInstantAll() {
@@ -140,7 +151,7 @@ export class PlottingController {
     if (this.scene) {
       this.scene.setPlotProgress(1.0);
     }
-    this.notifyProgress();
+    this.notifyProgress(true);
   }
 
   update(deltaTime) {
@@ -149,7 +160,7 @@ export class PlottingController {
     if (this.currentCount >= this.totalCount) {
       this.isPlaying = false;
       this.currentCount = this.totalCount;
-      this.notifyProgress();
+      this.notifyProgress(true);
       return;
     }
 
@@ -167,6 +178,7 @@ export class PlottingController {
     if (this.scene) {
       this.scene.setPlotProgress(progress);
     }
-    this.notifyProgress();
+    // The last frame must report, or the HUD is left showing "Pause" at 99%.
+    this.notifyProgress(!this.isPlaying);
   }
 }
