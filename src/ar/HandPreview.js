@@ -1,9 +1,18 @@
-import { HandLandmarker } from '@mediapipe/tasks-vision';
-import { OPEN_ENTER } from './HandTracker.js';
+// MediaPipe's 21-point hand topology (HandLandmarker.HAND_CONNECTIONS). Kept
+// here so drawing it does not pull MediaPipe into the main bundle; the tracker
+// itself is loaded only when gestures are switched on.
+const HAND_CONNECTIONS = [
+  [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11],
+  [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]
+];
 
 const ANCHOR_COLOUR = '#ffaa33';
 const DRIVER_COLOUR = '#00f0ff';
 const IDLE_COLOUR = 'rgba(255, 255, 255, 0.45)';
+// Above this (rad/s) the sky counts as turning rather than merely armed.
+const TURNING_ABOVE = 0.06;
+// Tuning numbers are for whoever is tuning: add ?debug to the URL to see them.
+const DEBUG = new URLSearchParams(location.search).has('debug');
 
 /**
  * Small picture-in-picture inside the AR layer showing what the hand tracker
@@ -17,7 +26,7 @@ export class HandPreview {
     this.el.className = 'ar-hand-preview hidden';
     this.el.innerHTML = `
       <canvas class="ar-hand-canvas" width="192" height="144"></canvas>
-      <span class="ar-hand-caption">no hands</span>
+      <span class="ar-hand-caption">show both hands</span>
       <span class="ar-hand-metrics"></span>
     `;
     this.canvas = this.el.querySelector('.ar-hand-canvas');
@@ -38,7 +47,7 @@ export class HandPreview {
   clear() {
     const { width, height } = this.canvas;
     this.ctx.clearRect(0, 0, width, height);
-    this.caption.textContent = 'no hands';
+    this.caption.textContent = 'show both hands';
     this.metrics.textContent = '';
     this.el.classList.remove('engaged');
   }
@@ -49,12 +58,13 @@ export class HandPreview {
    * @param engaged  anchor palm open and driving the sky
    * @param openness the anchor hand's measured openness, shown against the
    *   threshold so a palm that will not arm says why instead of just failing
+   * @param threshold the openness needed to arm (HandTracker's OPEN_ENTER)
    * @param mirrored selfie feed, drawn flipped to match what the user sees
    * @param gapMs    measured milliseconds between the last two readings
    * @param demand   rad/s the hand is asking for
    * @param speed    rad/s the sky is actually turning
    */
-  draw({ video, hands = [], engaged = false, openness = 0, mirrored = false,
+  draw({ video, hands = [], engaged = false, openness = 0, threshold = 0, mirrored = false,
          gapMs = null, demand = 0, speed = 0 }) {
     const { ctx, canvas } = this;
     const { width, height } = canvas;
@@ -71,19 +81,20 @@ export class HandPreview {
     ctx.restore();
 
     this.el.classList.toggle('engaged', engaged);
+    // Each caption says what to do next, not just what the tracker sees.
     if (engaged) {
-      this.caption.textContent = 'turning';
+      this.caption.textContent = speed > TURNING_ABOVE ? 'turning' : 'ready: sweep left hand';
     } else if (hands.length >= 2) {
       // The number is the tuning handle: if a comfortably open palm reads below
       // the threshold, OPEN_ENTER is wrong rather than the hand.
-      this.caption.textContent = `open palm ${openness.toFixed(2)}/${OPEN_ENTER}`;
+      this.caption.textContent = `open right palm ${openness.toFixed(2)}${threshold ? `/${threshold}` : ''}`;
     } else {
-      this.caption.textContent = hands.length === 1 ? 'need both hands' : 'no hands';
+      this.caption.textContent = hands.length === 1 ? 'raise your other hand' : 'show both hands';
     }
 
     // Detection gap, what the hand is demanding, and what the sky is doing.
     // Tuning without these three is guesswork.
-    this.metrics.textContent = gapMs
+    this.metrics.textContent = DEBUG && gapMs
       ? `${gapMs}ms  ask ${demand.toFixed(1)}  sky ${speed.toFixed(1)}`
       : '';
   }
@@ -102,13 +113,16 @@ export class HandPreview {
 
   drawHand({ points, role }, width, height, engaged) {
     const { ctx } = this;
-    const colour = !engaged ? IDLE_COLOUR : role === 'anchor' ? ANCHOR_COLOUR : DRIVER_COLOUR;
+    // Roles show before arming too, dimmed, so you can see which hand the
+    // tracker has taken for the anchor.
+    const colour = role === 'anchor' ? ANCHOR_COLOUR : role === 'driver' ? DRIVER_COLOUR : IDLE_COLOUR;
+    ctx.globalAlpha = engaged ? 1 : 0.55;
     const at = (i) => [points[i].x * width, points[i].y * height];
 
     ctx.strokeStyle = colour;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    for (const { start, end } of HandLandmarker.HAND_CONNECTIONS) {
+    for (const [start, end] of HAND_CONNECTIONS) {
       const [x1, y1] = at(start);
       const [x2, y2] = at(end);
       ctx.moveTo(x1, y1);
@@ -124,5 +138,6 @@ export class HandPreview {
       ctx.arc(x, y, i === 0 ? 3.5 : 2, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.globalAlpha = 1;
   }
 }

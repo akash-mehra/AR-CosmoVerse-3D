@@ -51,7 +51,8 @@ down — most of the movement happens after the hands stop, and that lag is the
 whole feel. Tuning lives in the constants at the top of `SkyGestures.js`
 (`YAW_GAIN`, `STATIC_BREAKAWAY`, `KINETIC_BREAKAWAY`, `SPIN_UP`,
 `RELEASE_DECAY`, `ZOOM_GAIN`, `TRAIL_FULL_SPEED`) — but read the preview's
-metrics line before changing any of them.
+metrics line before changing any of them. It only renders with `?debug` in the
+URL; end users get the captions, which say what to do next.
 
 The AR dock carries the gesture toggle, a 🔄 Flip control (gesturing at the
 rear camera means not being able to see the screen), Recentre and Exit. A hand
@@ -109,6 +110,7 @@ src/
   ar/SkyGestures.js          Gesture -> angular velocity, inertia, star trails
   ui/HUD.js                  Glassmorphic panels, histogram, CSV/SIMBAD loading
   ui/NamedObjectLayer.js     Label projection, declutter, picking, detail card
+  ui/notify.js               Non-blocking notices; use instead of alert()
   controller/PlottingController.js  Progressive "plot one by one" engine
 ```
 
@@ -120,11 +122,28 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
 `catalog.named` carries the `pointIndex` of its point.
 
 `HUD.loadCatalog` is the single choke point for swapping datasets, and fires
-`onCatalogLoaded` so the label layer rebinds. `main.js` owns the wiring hooks:
-`hud.shouldSuppressClick`, `hud.onCatalogLoaded`, `hud.onEnterAR`.
+`onCatalogLoaded` so the label layer rebinds. It restarts the plot from zero,
+playing. `main.js` owns the wiring hooks: `hud.onCatalogLoaded`,
+`hud.onEnterAR`, `namedLayer.onFlyTo` (AR re-anchors instead of flying), and
+the AR/gesture callbacks. It also wraps startup and the frame loop in an error
+boundary that reports on the boot screen rather than leaving a black page.
 
 ## Gotchas
 
+- **Spawn orders are ranks, `(rank + 1) / n`, not min-max scaled keys.** The
+  shader draws a point once `aSpawnOrder <= uPlotProgress`, so with ranks a
+  progress of k/n puts exactly k points on screen. The old min-max scaling kept
+  each key's own distribution, which made the plotted count, "points per
+  second" and every telemetry figure fiction. `rankOrder` in `sdssGenerator.js`
+  is a bucketed O(n) rank; keep using it for any new order.
+- **`aSpawnOrder` owns its buffer.** `setPlottingOrder` copies an order into
+  it, and it used to alias `catalogData.orders.redshift`, so the first switch
+  overwrote the redshift order for good.
+- **Telemetry is an O(n) scan over the plotted set**
+  (`PlottingController.notifyProgress`): counts, the redshift frontier and the
+  histogram all apply the shader's own test. It is throttled while playing;
+  anything that changes state passes `force` so the HUD is never left stale
+  (the play button used to read "Pause" after the plot had finished).
 - **The renderer needs `alpha: true`** in its constructor or nothing can show
   through the canvas, no matter what clear-colour alpha is set. This was
   `false` originally, which silently broke both the "Alpha BG" toggle and any
@@ -137,8 +156,10 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   does *not* stop that, it only gates input.
 - **The vertex shader hides points two ways**: `aSpawnOrder > uPlotProgress`
   (the plotting animation) and `aRedshift` outside `[uMinZ, uMaxZ]`. The default
-  range is 0.00–0.30, so most quasars are invisible until the filter is widened.
-  Check both before suspecting position.
+  range is 0.00–0.30, so most quasars are invisible until the filter is widened;
+  the Quasar Dawn preset widens it itself. Check both before suspecting
+  position. `NamedObjectLayer.isDrawn` applies the same two tests, so a label
+  never names a point that is not on screen.
 - **Nearby galaxies have negative redshift** (M31 is about -0.001), which the
   redshift filter would clip. `namedObjects.js` stores a clamped `filterZ` for
   the attribute while the card shows the true value. Keep that split.
@@ -186,7 +207,9 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   dimmed — which is what lets you frame your hands in the preview without
   turning the dimming off. Do not "fix" this by filtering the preview canvas.
 - `controls.minDistance` is 0.2, lowered from 5.0 so the Local Group (under
-  1 Mpc) is reachable. `ARMode.MIN_DISTANCE` matches it for the same reason —
+  1 Mpc) is reachable, and the camera's near plane is 0.02 to match — at its old
+  1.0 the Local Group was clipped exactly when you flew in to see it. The
+  coordinate rings do not write depth, because depth is coarse that far out. `ARMode.MIN_DISTANCE` matches it for the same reason —
   at its old value of 5 Mpc, entering AR near Andromeda snapped the map back
   out and the local tier was unreachable in AR.
 - **Anything that moves the camera around the map goes through `orbitBy`.**
@@ -211,6 +234,19 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   to the scene instead is the other half of that bug: AR's `cameraDriver`
   overwrites the camera every frame, so scene-targeted gestures do nothing
   visible.
+- **Never centre an absolutely positioned box with `left: 50%` + translate.**
+  Its shrink-to-fit width is capped at the space right of `left`, i.e. half
+  the screen: the AR dock stacked into three rows and notices squeezed into a
+  column. Use `left: 0; right: 0; margin: 0 auto; width: fit-content`.
+- **Grid tracks that hold wide content need `minmax(0, 1fr)`.** A plain `1fr`
+  grows to its content's min-content, and the unwrapped landmark nav pushed the
+  whole HUD 1,400px wide on a phone, AR button included.
+- **There is no global `.hidden` rule.** Each component declares its own
+  (`.ar-layer.hidden`, `.named-card.hidden`, …). The hand preview had none and
+  showed an empty box in AR the whole time gestures were off.
+- **Do not use `alert()`.** It blocks the render loop and, in AR, the camera
+  feed and hand tracking. Use `notify()` from `ui/notify.js`, which lives on
+  `<body>` so it shows in AR too. The CSV dialog keeps its errors inline.
 - **The global `canvas` rule absolutely positions every canvas on the page.**
   `canvas { position: absolute; width: 100%; height: 100% }` exists for the
   WebGL surface, so any other canvas has to opt back into flow
@@ -226,7 +262,23 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   forwards the new one to `SkyGestures.useSource()`, which rebinds without
   reloading the model. The rear camera is the right default for looking at the
   sky, but you cannot watch the screen while gesturing at it — the front camera
-  is what makes the gesture usable one-person.
+  is what makes the gesture usable one-person, so switching gestures on flips
+  to it (Flip still goes back).
+- **`facingMode` comes from the track, not the request.** `ideal` is only a
+  preference, and a one-camera device hands back what it has; trusting the
+  request gave rear-only phones a mirrored feed and reversed gestures. Cameras
+  that report nothing (most laptop webcams) keep the requested label.
+- **Without a motion sensor OrbitControls owns the AR camera**, so
+  `ARMode.orbitBy` delegates to `GalaxyScene.orbitBy` and Recentre puts the view
+  back on the anchor. Moving the anchor there snapped back on the next update.
+- **MediaPipe is loaded on demand.** `SkyGestures.start` dynamically imports
+  `HandTracker.js`, which keeps ~155 kB out of the main bundle; `HandPreview`
+  carries its own copy of the 21-point topology for the same reason. The
+  tracker (and the downloaded model) is kept across gesture toggles — only a
+  failed start closes it. Stopping during a start (leaving AR while the model
+  downloads) cancels it quietly.
+- **The GPU delegate can fail on some phones**; `HandTracker.load` falls back
+  to the CPU delegate before giving up.
 - **The WASM URL in `HandTracker.js` is pinned to the `@mediapipe/tasks-vision`
   version in package.json.** The JS bundle and the WASM are released as a pair
   and a mismatch fails to instantiate, so bump both together. The model
@@ -247,9 +299,9 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   as one enormous shove. It also returns whether it got a frame, and `update`
   only charges the detection interval on a hit — advancing it on a miss threw
   away a whole slot and widened the gap further.
-- **Tune against the on-screen numbers, not adjectives.** The preview's second
-  line shows the measured gap, the speed the hand is demanding, and the speed
-  the sky is turning (`50ms  ask 1.6  sky 1.3`). Measured at a realistic 50ms
+- **Tune against the on-screen numbers, not adjectives.** With `?debug` in the
+  URL the preview's second line shows the measured gap, the speed the hand is
+  demanding, and the speed the sky is turning (`50ms  ask 1.6  sky 1.3`). Measured at a realistic 50ms
   gap: a hand merely in shot demands ~0.14 rad/s, a wandering hand ~0.35, an
   unhurried but deliberate sweep ~0.86, a committed one ~1.6. `STATIC_BREAKAWAY`
   belongs between wandering and deliberate — it was 1.3, above every one of
@@ -281,15 +333,13 @@ buffers at true coordinates, so names survive any catalog swap. Each entry in
   out 16x.
 - **Never clear `wasOpen` on a partial reading.** Detection drops to one hand
   constantly, and resetting hysteresis there sends an already-open palm back to
-  the strict `OPEN_ENTER`, which reads as the gesture refusing to arm. Only the
-  constructor and `close()` reset it.
+  the strict `OPEN_ENTER`, which reads as the gesture refusing to arm. Only
+  `reset()` clears it, and only between gesture sessions (start, stop, close).
 - **`uTrailAmount` at 0 must reproduce the original round star exactly.** The
   vertex stage grows the sprite by `1 + uTrailAmount * 5` and the fragment stage
   divides its sampling by the same factor, so the star keeps its width and only
   gains length. Additive blending piles stretched sprites up in the dense wedge,
   which is why alpha is scaled by `inversesqrt(widen)`.
-- The README still oversells: there is no spectrum visualizer, and the "object
-  inspector" it describes only exists for the named subset.
 
 ## Verifying UI changes
 
@@ -318,7 +368,9 @@ point `gestures.target` at `arMode` (or the scene), stub `gestures.video` with
 `{ readyState: 4, currentTime: 0 }` and replace `gestures.tracker` with an
 object whose `read()` returns `{ partial: false, anchorOpen, driverOpen,
 driver: {x, y}, anchor: {x, y}, spread, hands: [] }` — and give it a `mirrored`
-property, which the preview call reads. Reset `gestures.nextDetectAt = 0` before each
+property, which the preview call reads, and a `reset()`, which `stop()` calls.
+In this sandbox a real `start()` fails at the model download with a notice;
+that failure path is itself worth checking after gesture changes. Reset `gestures.nextDetectAt = 0` before each
 `update(dt)` so every step reads the stub. That covers the whole motion model —
 engagement, inertia, spread-to-distance and the trail uniforms — and leaves only
 MediaPipe itself untested. For the trails alone, set `scene.uniforms.uTrailAmount`
