@@ -10,6 +10,7 @@ import { createSky, createDust, setWarp, SKY_RADIUS } from './sky.js';
 import { createBelts } from './belts.js';
 import { BodyCard } from './BodyCard.js';
 import { createAtmosphere } from './atmosphere.js';
+import { BodyMaps, surfaceNote } from './bodyMaps.js';
 import { BAND_OUTER, SOLAR_FOV } from './scale.js';
 import { accelerateZoom } from '../rendering/accelerateZoom.js';
 
@@ -19,13 +20,6 @@ const TEXTURE_BASE = (import.meta.env.VITE_TEXTURE_BASE || `${import.meta.env.BA
 const TEXTURE_ROOT = `${TEXTURE_BASE}solar/`;
 // Spacecraft maps of Earth, the moons and dwarf planets (npm run fetch:textures).
 const BODY_ROOT = `${TEXTURE_BASE}bodies/`;
-// A body's spacecraft map loads once it spans this many pixels on screen; until
-// then its painted surface stands in, so bodies never visited cost no memory.
-const PHOTO_PX = 12;
-// The Moon's normal map holds true slopes; drawn deeper so its relief reads.
-const MOON_RELIEF = 2.5;
-// Below this share of its surface photographed, a card says how much was seen.
-const MOSTLY_SEEN = 0.98;
 const TIME_SPEEDS = [0, 1, 10, 100];
 // Arrival from interstellar space: fast at first, easing in to the planets.
 const APPROACH_SECONDS = 6.5;
@@ -50,38 +44,6 @@ async function loadTexture(loader, file, { data = false } = {}) {
   } catch {
     return null;
   }
-}
-
-/** A painted surface's overall colour, brightest channel 1: the tint for a greyscale map. */
-function averageColour(image) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 32;
-  canvas.height = 16;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(image, 0, 0, 32, 16);
-  const { data } = ctx.getImageData(0, 0, 32, 16);
-  const sum = [0, 0, 0];
-  for (let i = 0; i < data.length; i += 4) for (let c = 0; c < 3; c++) sum[c] += data[i + c];
-  const top = Math.max(...sum, 1);
-  return sum.map((v) => v / top);
-}
-
-/** City lights only on the night side, fading in through twilight. The Sun is at the origin. */
-function nightSideOnly(shader) {
-  shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-    vec3 toSun = normalize((viewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz + vViewPosition);
-    totalEmissiveRadiance *= smoothstep(0.1, -0.15, dot(normal, toSun));`);
-}
-
-/** Where a body's surface comes from, for its card. */
-function surfaceNote(body, entry) {
-  if (entry) {
-    const seen = entry.note ? ` ${entry.note}; what it never saw is left plain.`
-      : entry.imaged < MOSTLY_SEEN ? ` ${Math.round(entry.imaged * 100)}% of it has been photographed; the rest is left plain.` : '';
-    return `Map: ${entry.credit}.${seen}`;
-  }
-  if (!body.mesh.material.map?.isCanvasTexture) return 'Map: Solar System Scope, from NASA imagery (CC BY 4.0).';
-  return body.unvisited ? "Artist's impression: no spacecraft has visited it." : "Artist's impression: no spacecraft map of it is used here.";
 }
 
 /** A potato: a sphere dented in a few places, for bodies too small to pull themselves round. */
@@ -147,9 +109,7 @@ export class SolarSystem {
 
     this.bodies = [];
     this.byName = new Map();
-    this.bodyMaps = {};
-    this.pendingMaps = [];
-    this.loader = new THREE.TextureLoader();
+    this.maps = new BodyMaps(BODY_ROOT, renderer);
     this.pickables = [];
     this.active = false;
     this.years = 0;
@@ -255,16 +215,12 @@ export class SolarSystem {
   }
 
   async build() {
-    const loader = this.loader;
+    const loader = new THREE.TextureLoader();
     const maps = new Map();
     const colourFiles = ['sun.jpg', ...PLANETS.map((p) => p.texture), ...MOONS.map((m) => m.texture).filter(Boolean)];
     const dataFiles = PLANETS.map((p) => p.clouds).filter(Boolean);
     await Promise.all([
-      // Without the manifest every body keeps its painted surface.
-      fetch(`${BODY_ROOT}manifest.json`)
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-        .then((manifest) => { this.bodyMaps = manifest.bodies ?? {}; })
-        .catch((err) => console.warn('Body maps unavailable:', err.message)),
+      this.maps.load(),
       ...colourFiles.map(async (f) => maps.set(f, await loadTexture(loader, f))),
       ...dataFiles.map(async (f) => maps.set(f, await loadTexture(loader, f, { data: true })))
     ]);
@@ -312,9 +268,8 @@ export class SolarSystem {
     if (body.mesh) {
       body.mesh.userData.body = body;
       this.pickables.push(body.mesh);
-      const entry = this.bodyMaps[body.name.toLowerCase()];
-      if (entry) this.pendingMaps.push({ body, entry });
-      body.surfaceNote = surfaceNote(body, entry);
+      body.surfaceNote = surfaceNote(body, this.maps.entry(body.name));
+      this.maps.add(body);
     }
     this.bodies.push(body);
     this.byName.set(body.name, body);
@@ -706,7 +661,7 @@ export class SolarSystem {
     this.moonClock += dt * Math.min(this.timeScale, 3);
     const spinDt = this.timeScale > 0 ? dt : 0;
     for (const body of this.bodies) body.tick?.(spinDt);
-    this.loadNearMaps();
+    this.maps.update(this.camera, this.size.y);
     this.belts.material.uniforms.uYears.value = this.years;
     this.belts.material.uniforms.uPixelRatio.value = this.renderer.getPixelRatio();
 
@@ -719,55 +674,6 @@ export class SolarSystem {
     }
     this.updateWarp(dt);
     this.stepDate = dt;
-  }
-
-  /** Starts a body's spacecraft maps loading the first time it is big enough on screen to show them. */
-  loadNearMaps() {
-    if (!this.pendingMaps.length) return;
-    const pxPerUnit = this.size.y / (2 * Math.tan((this.camera.fov * DEG) / 2));
-    this.pendingMaps = this.pendingMaps.filter(({ body, entry }) => {
-      const distance = body.mesh.getWorldPosition(this._a).distanceTo(this.camera.position);
-      if ((body.radius / distance) * pxPerUnit < PHOTO_PX) return true;
-      this.applyMaps(body, entry).catch((err) => console.warn(`${body.name} map:`, err.message));
-      return false;
-    });
-  }
-
-  /**
-   * Puts a body's spacecraft maps on it: the colour map (a greyscale one tinted
-   * to the body's overall colour), the Moon's relief, and Earth's night lights
-   * and clouds.
-   */
-  async applyMaps(body, entry) {
-    const load = async (map, colour = true) => {
-      const texture = await this.loader.loadAsync(BODY_ROOT + map['2k'].file);
-      texture.colorSpace = colour ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-      texture.anisotropy = 4;
-      return texture;
-    };
-    const { material } = body.mesh;
-    const painted = material.map?.isCanvasTexture ? material.map.image : null;
-    const map = await load(entry.maps.color);
-    if (entry.grey && painted) material.color.setRGB(...averageColour(painted), THREE.SRGBColorSpace);
-    const old = material.map;
-    material.map = map;
-    old?.dispose();
-    if (entry.maps.normal) {
-      material.normalMap = await load(entry.maps.normal, false);
-      material.normalScale.setScalar(MOON_RELIEF);
-    }
-    if (entry.maps.night) {
-      material.emissiveMap = await load(entry.maps.night);
-      material.emissive.set(0xffffff);
-      material.onBeforeCompile = nightSideOnly;
-    }
-    if (entry.maps.clouds && body.clouds) {
-      const clouds = body.clouds.material;
-      clouds.alphaMap?.dispose();
-      clouds.alphaMap = await load(entry.maps.clouds, false);
-      clouds.needsUpdate = true;
-    }
-    material.needsUpdate = true;
   }
 
   /** Renders into whatever target is bound, and lays out the labels. */
