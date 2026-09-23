@@ -49,7 +49,7 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 3b | Continuous scale: one zoom from the cosmic web down to the planets | Engine and nearby-stars layer done; a tour engine was built and pulled, to be revisited |
 | 3c | Map data pipeline: `fetch:textures`, two sizes per map, manifest, credits, `VITE_TEXTURE_BASE` | Done: 15 bodies, 2K set 5.8 MB, 4K set 19.0 MB (16 files each, JPEG) |
 | 3d | Planet detail: atmospheres, Earth clouds + night lights, the Moon's relief, photo maps for moons | Done: 18 bodies on spacecraft maps, 4 atmospheres, every card says where its surface comes from |
-| 3e | Sharper maps near bodies: 4K in on approach, out on leaving, phones capped | Not started |
+| 3e | Sharper maps near bodies: 4K in on approach, out on leaving, phones capped | Done: painted → 2K → 4K by size on screen, released on leaving; phones stop at 2K |
 | 3f | Optional HD download: prompt with the real size, service worker cache, cache-first loading | Not started |
 | 3g | Landing on Earth: true-scale Earth layer, GIBS / Blue Marble to region level, a dormant Google 3D Tiles slot | Not started |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
@@ -138,7 +138,11 @@ versus free, phone-first versus desktop/VR, download budget, narration voice.
   of GPU memory with mipmaps whatever its file size, so the file format
   (JPEG/WebP versus KTX2, which needs a transcoder) sets whether that cap is
   2K or 4K. Done when flying up to any body sharpens it without a memory spike
-  on a phone.
+  on a phone. **Result:** `BodyMaps` picks painted, 2K or 4K from each body's
+  radius on screen (12 px, 400 px) with hysteresis, and disposes what a body
+  no longer needs, so GPU memory returns to its baseline once the camera
+  leaves. Phones and GPUs without 4096-pixel textures stop at 2K; files stay
+  JPEG, as KTX2 was not needed for that.
 - **3f, optional HD download.** On the way into the Milky Way, a prompt with
   the real size (Download / Not now, remembered). A service worker saves the
   maps to the Cache API with progress and cancel and asks for persistent
@@ -248,6 +252,7 @@ src/
   solar/scale.js             Where the Solar System sits in the map: units, axes, band
   solar/Wormhole.js          The trip: tunnel shader, ship's bridge, synthesised sound
   solar/atmosphere.js        Atmosphere shell: air crossed per sight line, lit by the Sun
+  solar/bodyMaps.js          Spacecraft maps by size on screen: painted, 2K, 4K; released on leaving
   solar/SolarSystem.js       Lazy-loaded scene: bodies, labels, cards, tour, time
   solar/data.js              Every body's elements, sizes and card facts; scaling
   solar/kepler.js            Kepler's equation for the eccentric orbits
@@ -496,11 +501,21 @@ boundary that reports on the boot screen rather than leaving a black page.
   darkness during the flyby. 3d labels the rest as an artist's impression.
   Iapetus's mosaic has its brightness flattened, so its black-and-white
   two-tone is mostly gone; 3d has to put the albedo back.
-- **Spacecraft maps load on approach** (`loadNearMaps`). All 21 2K maps at
-  once would be ~235 MB of GPU memory, too much for a phone. A body keeps its
-  painted surface until it spans `PHOTO_PX` (12 px) on screen, then
-  `applyMaps` swaps in its maps and keeps them; 3e adds unloading and 4K. The
-  manifest is fetched in `build`; without it every body stays painted.
+- **Spacecraft maps follow a body's size on screen** (`BodyMaps`, from 3e).
+  A body shows its painted surface until its radius on screen reaches
+  `NEAR_PX` (12 px), then its 2K maps, then its 4K maps past `SHARP_PX` (400
+  px, where 2K texels are ~1.3 screen pixels). Each level is let go only below
+  a lower threshold (4 px, 250 px), so a body at the edge does not flicker, and
+  leaving a body disposes its maps: all 21 2K maps at once were ~235 MB of GPU
+  memory, and a Grand tour used to pile them all up. A set is shown only if it
+  is still wanted when it arrives and is still the current set (a set let go
+  and asked for again mid-load is being disposed); one let go mid-load is
+  disposed when it lands. The painted surface is kept as the base to fall back
+  to. The manifest is fetched in `build`; without it every body stays painted.
+- **Phones stop at 2K** (`BodyMaps.top`): a coarse pointer, or a GPU whose
+  `maxTextureSize` is under 4096. A 4K JPEG map is ~90 MB of GPU memory with
+  mipmaps whatever its file size, and Earth has three. KTX2 would let phones
+  have 4K at a quarter of that, at the cost of a transcoder; not done.
 - **A map's 0° longitude faces the parent**, as moon maps define it. A
   sphere puts the map's centre on +X and the planet lies along −X, so moons
   turn half a turn (`mesh.rotation.y = π`); an icosahedron's UVs (the lumpy
@@ -759,6 +774,13 @@ origin (the Sun behind the camera for a full disc, side-on for the
 terminator) and copy the body's position into `follow.last`. Wait for the body
 to leave `pendingMaps`. A map longitude for a direction `d` in the body's local
 frame is `atan2(d.z, −d.x) / 2π` (+0.5 on an icosahedron), centred on 0°.
+
+To test the map levels without the wormhole, `await portal.ensureSolar()`
+then `portal.handToSolar()`. Place the camera a number of radii from a body
+(set `solar.follow` to it with that offset, so it rides along) and read
+`body.maps.want`, `.shown` and `.sets` and `renderer.info.memory.textures`;
+wait for `shown === want` before reading. Playwright's `isMobile` + `hasTouch`
+gives a coarse pointer, so `solar.maps.top` is `'2k'` there.
 
 To test the continuous zoom, click `[data-landmark="earth"]` (aims at the Sun)
 and move whichever camera owns the view along its line of sight:
