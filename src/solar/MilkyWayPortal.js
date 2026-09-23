@@ -143,6 +143,8 @@ export class MilkyWayPortal {
     const fov = THREE.MathUtils.lerp(SOLAR_FOV, this.scene.fov, this.band);
     setFov(this.solar.camera, fov);
     setFov(this.scene.camera, fov);
+    // At Earth the Earth layer sets the roll.
+    if (this.solar.earth?.owns) return;
     // The view rolls steadily about the line of sight, from ecliptic north up
     // to the map's up by the band's outer edge, so neither hand-over snaps it round.
     // (Turning the up vector itself swung the view fast wherever its path

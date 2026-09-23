@@ -65,8 +65,8 @@ const NEW_HORIZONS = 'NASA/JHUAPL/SwRI (New Horizons LORRI, MVIC); mosaic via US
  */
 const BODIES = [
   {
-    id: 'earth', name: 'Earth', url: `${EO}74000/74218/world.200412.3x5400x2700.jpg`, left: -180,
-    credit: 'NASA Earth Observatory: Blue Marble Next Generation (MODIS, December 2004), Black Marble 2016 (Suomi NPP VIIRS) and Blue Marble clouds (MODIS)',
+    id: 'earth', name: 'Earth', url: `${EO}74000/74117/world.200408.3x5400x2700.jpg`, left: -180,
+    credit: 'NASA Earth Observatory: Blue Marble Next Generation (MODIS, August 2004, the month NASA GIBS serves), Black Marble 2016 (Suomi NPP VIIRS) and Blue Marble clouds (MODIS)',
     layers: {
       night: { url: `${EO}144000/144898/BlackMarble_2016_3km.jpg` },
       clouds: { url: `${EO}57000/57747/cloud_combined_8192.tif`, grey: true }

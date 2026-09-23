@@ -2103,3 +2103,18 @@ canvas {
     display: none;
   }
 }
+
+/* Down at Earth the Solar System's labels and clock controls stand aside. */
+.solar-layer.earth-view .solar-labels,
+.solar-layer.earth-view .solar-tools,
+.solar-layer.earth-view .solar-card-follow {
+  display: none;
+}
+
+.earth-credit {
+  display: none;
+}
+
+.solar-layer.earth-view .earth-credit {
+  display: inline;
+}

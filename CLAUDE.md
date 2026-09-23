@@ -51,7 +51,7 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 3d | Planet detail: atmospheres, Earth clouds + night lights, the Moon's relief, photo maps for moons | Done: 18 bodies on spacecraft maps, 4 atmospheres, every card says where its surface comes from |
 | 3e | Sharper maps near bodies: 4K in on approach, out on leaving, phones capped | Done: painted → 2K → 4K by size on screen, released on leaving; phones stop at 2K |
 | 3f | Optional HD download: prompt with the real size, map cache, cache-first loading | Done: offered on entering the Solar System, 30.3 MB on desktop (2K + 4K), 7.0 MB on phones; no service worker |
-| 3g | Landing on Earth: true-scale Earth layer, GIBS / Blue Marble to region level, a dormant Google 3D Tiles slot | Not started |
+| 3g | Landing on Earth: true-scale Earth layer, GIBS / Blue Marble to region level, a dormant Google 3D Tiles slot | Done: follow Earth and zoom from orbit to 250 km on GIBS tiles (~490 m a pixel); Google slot empty |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
 **Phase 3a notes.** The Milky Way was missing — only a 1 Mpc "Earth" sphere at
@@ -166,10 +166,16 @@ versus free, phone-first versus desktop/VR, download budget, narration voice.
   is switched on, its key runs in the browser (restrict it to the site's
   domains), Google's attribution must show, and its tiles must stay out of the
   3f cache, which Google's terms forbid. Done when you can descend from orbit
-  to region level with the Google slot ready.
-- **Still unplaced:** reaching the Solar System from AR (open since 3a). 3g
-  adds another layer AR cannot reach, so decide whether it goes before 3g or
-  into Phase 4.
+  to region level with the Google slot ready. **Result:** following Earth,
+  a zoom runs from the Solar System into a km-scale Earth (`src/earth/`)
+  across a band 5–2.5 Earth radii out, and on down to 250 km, where GIBS's
+  Blue Marble (level 7, ~490 m a pixel) is about two screen pixels. The
+  Solar System's Earth map is now August 2004, the month GIBS serves, so the
+  two agree. `googleTiles()` is the slot and returns null; nothing is fetched
+  from Google and no key is read.
+- **Still unplaced:** reaching the Solar System from AR (open since 3a). The
+  Earth layer is a third layer AR cannot reach; decide whether AR gets there
+  before Phase 4 or in it.
 - **Parked:** the spaceship (a chase camera suggested, not confirmed); the
   tour; OpenStreetMap buildings, street view and a move to Cloudflare; the
   open decisions (true or cinematic scale, guided or free, phone or
@@ -261,6 +267,9 @@ src/
   solar/bodyMaps.js          Spacecraft maps by size on screen: painted, 2K, 4K; released on leaving
   solar/hdMaps.js            The optional HD download: the offer, the map cache, cache-first lookup
   solar/SolarSystem.js       Lazy-loaded scene: bodies, labels, cards, tour, time
+  earth/EarthLayer.js        True-scale Earth in km: the band with the Solar System, controls, drawing
+  earth/gibsTiles.js         NASA GIBS Blue Marble tiles, levels 3–7, by texel size on screen
+  earth/googleTiles.js       The empty slot for Google Photorealistic 3D Tiles, and its conditions
   solar/data.js              Every body's elements, sizes and card facts; scaling
   solar/kepler.js            Kepler's equation for the eccentric orbits
   solar/sky.js               Real sky (band, nebulae, stars), warp shader, dust
@@ -484,13 +493,60 @@ boundary that reports on the boot screen rather than leaving a black page.
   with distances agreeing to 25%, or they were drawn twice. The proxy
   occasionally drops a long TAP response, so each query retries once. Like
   `fetch:named`, it needs `NODE_USE_ENV_PROXY=1` here.
+- **The Earth layer is a scaled copy of the Solar System's Earth** (`EarthLayer`),
+  in Earth's own frame: the mesh's local axes, in km (`kmPerUnit` =
+  6,378 km over its display radius). One camera is placed from the other
+  through the mesh's world matrix, so across the band the two layers put
+  every place on the same pixel (measured: 0.000 px). It is drawn after the
+  Solar System's frame, cleared to transparent, so the real sky, the Sun and
+  the Moon stay behind it; faded through `LayerBlend` across the band,
+  straight over it inside, where the stand-in Earth is hidden. The band only
+  applies while following Earth: unfollowed, Earth runs off along its orbit.
+- **At Earth the Solar System's clock is held** (`step` uses a time scale of 0
+  while `earth.owns`): at display speed Earth turns every 8 s and circles the
+  Sun every 30, so the ground and the terminator would race. Held, Earth's
+  frame is still and the Sun's direction fixed. Labels, the tour and the speed
+  buttons and the card's Follow stand aside (`.earth-view`), picking is off and the date line says
+  so; zooming back out past mid-band hands the view back and time runs again.
+- **The Earth layer sets its own roll.** It orbits Earth's axis (north up)
+  while the Solar System's up is ecliptic north, 23.4° away. The view rolls
+  from one to the other between the hand-over (3.4 R) and 1.6 R, as the map
+  band does, and `MilkyWayPortal.measure` leaves the Solar System camera's up
+  alone while the Earth layer owns it, or its `lookAt` would undo the roll.
+- **Zoom at Earth goes by altitude, not distance.** OrbitControls scales the
+  distance to the target (Earth's centre), which near the ground would step
+  hundreds of km a notch. `steer` sets `zoomSpeed` so each notch is 5% of the
+  altitude, and `rotateSpeed` so a drag keeps the ground under the pointer.
+  `accelerateZoom` multiplies `controls.zoomBase` when a layer sets one.
+- **GIBS's geographic grid is 288° at level 0**, so only levels 3–7 tile the
+  globe exactly (36° down to 2.25°, 512 px tiles). A tile splits while its
+  pixels exceed 1.25 screen pixels, and its children replace it only once all
+  the visible ones have arrived; until then the manifest's map shows
+  underneath, 2 km lower so tiles never z-fight it. Top-level tiles are fetched
+  only where that map would look blurred, so nothing loads out in the band.
+  Tiles are kept by last use up to 96 (48 on phones). City lights on tiles
+  read the global night map through a second UV set (`uv1`, a `channel = 1`
+  clone sharing its GPU texture). The floor is 250 km: GIBS's ~490 m pixels
+  are two screen pixels there, and below it they would only magnify.
+- **GIBS's terms** (Earthdata's data use guidance): NASA mission data not
+  marked otherwise is CC0; GIBS asks for an acknowledgement, which is in the
+  Solar System credit line while at Earth (`.earth-credit`) and in the README.
+  Its tiles send `Access-Control-Allow-Origin: *`, and are not part of the 3f
+  cache.
+- **The atmosphere takes the Sun's position** (`uSun`, the origin in the
+  Solar System). The Earth layer sets it to the Sun's true direction at 1 AU
+  in km; `normalize(-p)` assumed a Sun at the origin.
+- **`LayerBlend.over` restores whatever target was bound**, not the canvas,
+  so a layer drawn inside another's blend composites into it.
 - **`fetch:textures` re-frames every map to one convention**: east to the
   right, 0° longitude at the centre, 180° at both edges. The archive's ISIS
   labels number longitude east or west and centre on 0° or 180°; the script
   reads `LongitudeDirection`, `CenterLongitude` and `UpperLeftCornerX` and
   rolls each map. ISIS draws east to the right either way — checked by eye
   against Mare Crisium, Pele and Loki, Herschel and Iapetus's ridge. A source
-  without a label (the Moon, Mimas) carries its left edge by hand. The ~2 GB
+  without a label (the Moon, Mimas) carries its left edge by hand. Earth's
+  colour map is August 2004 (record 74117), the month GIBS's Blue Marble
+  matches, so the tiles do not melt December's snow as they load. The ~2 GB
   of originals are cached in `node_modules/.cache/fetch-textures` and checked
   against the archive's MD5s; `sharp` (dev only) decodes them, with no pixel
   limit, since Pluto's mosaic is 310 megapixels.
@@ -805,6 +861,22 @@ in about a second, so to test Cancel, throttle with CDP
 (`Network.emulateNetworkConditions`, ~2 MB/s). Read the cache with
 `caches.open('cosmoverse-maps')` and check its `keys()` hold nothing but map
 files. Record `page.on('request')` to confirm a saved map is not fetched again.
+
+To test the Earth layer, select Earth (`solar.select(byName.get('Earth'))`),
+wait for `follow.t >= 1`, then place the Solar System camera r Earth radii
+from Earth's centre along its line of sight (and copy Earth's position into
+`follow.last`). Past the hand-over (`solar.earth.owns`) move
+`solar.earth.camera` instead: `position.setLength(radius + altitudeKm)`.
+`earth.opacity`, `earth.tiles.tiles` (each with `state`, `level`, `mesh`) and
+`solar.years` (held while owned) say where you are. To check the layers agree,
+project a lat/lon through both cameras (the Solar System's through
+`earth.mesh.matrixWorld`); it should be 0 px. This sandbox's Chromium does not
+trust the proxy's CA, so GIBS fails there with `ERR_CERT_AUTHORITY_INVALID`;
+do not disable certificate checks. Route `https://gibs.earthdata.nasa.gov/**`
+through Playwright to Node's `fetch` (run with `NODE_USE_ENV_PROXY=1`), which
+verifies the chain, and fulfil with the response plus
+`Access-Control-Allow-Origin: *`. With time held, wait on animation frames,
+not the Solar System's clock.
 
 To test the continuous zoom, click `[data-landmark="earth"]` (aims at the Sun)
 and move whichever camera owns the view along its line of sight:

@@ -23,11 +23,12 @@ export class LayerBlend {
   /** `draw` renders the layer into whatever target is bound; `opacity` is how much of it shows. */
   over(draw, opacity) {
     const renderer = this.renderer;
+    const previous = renderer.getRenderTarget();
     renderer.getDrawingBufferSize(this._size);
     if (this.target.width !== this._size.x || this.target.height !== this._size.y) this.target.setSize(this._size.x, this._size.y);
     renderer.setRenderTarget(this.target);
     draw();
-    renderer.setRenderTarget(null);
+    renderer.setRenderTarget(previous);
 
     this.material.opacity = opacity;
     const autoClear = renderer.autoClear;

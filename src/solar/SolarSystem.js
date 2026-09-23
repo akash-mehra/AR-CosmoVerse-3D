@@ -12,6 +12,7 @@ import { BodyCard } from './BodyCard.js';
 import { createAtmosphere } from './atmosphere.js';
 import { BodyMaps, surfaceNote } from './bodyMaps.js';
 import { MapOffer } from './hdMaps.js';
+import { EarthLayer } from '../earth/EarthLayer.js';
 import { BAND_OUTER, SOLAR_FOV } from './scale.js';
 import { accelerateZoom } from '../rendering/accelerateZoom.js';
 
@@ -123,6 +124,7 @@ export class SolarSystem {
     this.warp = 0;
     this.dateClock = 0;
     this.loaded = null;
+    this.earth = null;
 
     this.size = new THREE.Vector2();
     this.lastCam = new THREE.Vector3();
@@ -158,7 +160,8 @@ export class SolarSystem {
       <p class="solar-hint">Drag to orbit · scroll or pinch to zoom · tap anything named to learn about it</p>
       <p class="solar-credit">Sizes and distances compressed to fit — the Oort Cloud far more.
         Planet maps: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener noreferrer">Solar System Scope</a>, CC BY 4.0 ·
-        Earth, moon and dwarf-planet maps: NASA, USGS</p>
+        Earth, moon and dwarf-planet maps: NASA, USGS<span class="earth-credit"> · Earth close up:
+        <a href="https://www.earthdata.nasa.gov/engage/open-data-services-software/earthdata-developer-portal/gibs-api" target="_blank" rel="noopener noreferrer">NASA GIBS</a>, part of ESDIS</span></p>
     `;
     this.labelRoot = this.root.querySelector('.solar-labels');
     this.dateEl = this.root.querySelector('.solar-date');
@@ -205,6 +208,8 @@ export class SolarSystem {
       const rect = el.getBoundingClientRect();
       const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       this.raycaster.setFromCamera(ndc, this.camera);
+      // At Earth only the Earth layer is drawn where the bodies would be.
+      if (this.earth?.owns) return;
       const hit = this.raycaster.intersectObjects(this.pickables, false)[0];
       if (hit) this.select(hit.object.userData.body);
     });
@@ -255,6 +260,10 @@ export class SolarSystem {
     for (const region of this.belts.regions) {
       this.addBody({ name: region.name, kind: 'belt', info: region.info, anchor: region.anchor, followable: true, viewDistance: 70 });
     }
+
+    const earth = this.byName.get('Earth');
+    this.earth = new EarthLayer(this.renderer, earth, PLANETS.find((p) => p.name === 'Earth'));
+    earth.surfaceNote += ' Close up: NASA GIBS imagery, to about 500 m a pixel.';
   }
 
   addBody(body) {
@@ -636,6 +645,7 @@ export class SolarSystem {
     this.stopTour();
     this.selected = null;
     this.card.hide();
+    this.earth?.release(this);
   }
 
   update(dt) {
@@ -660,9 +670,11 @@ export class SolarSystem {
 
     // Time: planets and belts run on simulated years; moons on their own
     // compressed clock, capped so fast time does not turn them into a blur.
-    this.years += (dt * this.timeScale) / EARTH_YEAR_SECONDS;
-    this.moonClock += dt * Math.min(this.timeScale, 3);
-    const spinDt = this.timeScale > 0 ? dt : 0;
+    // It holds while the Earth layer has the view.
+    const timeScale = this.earth?.owns ? 0 : this.timeScale;
+    this.years += (dt * timeScale) / EARTH_YEAR_SECONDS;
+    this.moonClock += dt * Math.min(timeScale, 3);
+    const spinDt = timeScale > 0 ? dt : 0;
     for (const body of this.bodies) body.tick?.(spinDt);
     this.maps.update(this.camera, this.size.y);
     this.belts.material.uniforms.uYears.value = this.years;
@@ -670,11 +682,12 @@ export class SolarSystem {
 
     if (this.approach && !driven) {
       this.updateApproach(dt);
-    } else if (!driven) {
+    } else if (!driven && !this.earth?.owns) {
       this.updateFollow(dt);
       this.updateTour(dt);
       this.controls.update();
     }
+    this.earth?.update(dt, this);
     this.updateWarp(dt);
     this.stepDate = dt;
   }
@@ -684,6 +697,7 @@ export class SolarSystem {
     this.sky.group.position.copy(this.camera.position);
     this.dust.material.uniforms.uCam.value.copy(this.camera.position);
     this.renderer.render(this.scene, this.camera);
+    this.earth?.draw();
     this.layoutLabels();
     this.updateDate(this.stepDate);
   }
@@ -795,7 +809,8 @@ export class SolarSystem {
     if (this.dateClock > 0) return;
     this.dateClock = 0.25;
     const date = new Date((START_YEAR + this.years - 1970) * MS_PER_YEAR);
-    const speed = this.timeScale === 0 ? 'paused' : `1 year every ${EARTH_YEAR_SECONDS / this.timeScale} s`;
+    const speed = this.earth?.owns ? 'time held at Earth'
+      : this.timeScale === 0 ? 'paused' : `1 year every ${EARTH_YEAR_SECONDS / this.timeScale} s`;
     this.dateEl.textContent = `${Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)} · ${speed}`;
   }
 }
