@@ -11,6 +11,7 @@ import { createBelts } from './belts.js';
 import { BodyCard } from './BodyCard.js';
 import { createAtmosphere } from './atmosphere.js';
 import { BodyMaps, surfaceNote } from './bodyMaps.js';
+import { MapOffer } from './hdMaps.js';
 import { BAND_OUTER, SOLAR_FOV } from './scale.js';
 import { accelerateZoom } from '../rendering/accelerateZoom.js';
 
@@ -168,6 +169,7 @@ export class SolarSystem {
     this.speedBtns.forEach((btn) => btn.addEventListener('click', () => this.setSpeed(Number(btn.dataset.speed))));
 
     this.card = new BodyCard(this.root);
+    this.offer = new MapOffer(this.root, this.maps);
     this.card.onClose = () => {
       this.selected = null;
       this.card.hide();
@@ -622,6 +624,7 @@ export class SolarSystem {
     this.controls.target.copy(target);
     this.lastCam.copy(position);
     this.controls.enabled = true;
+    this.offer.offer();
   }
 
   exit() {
