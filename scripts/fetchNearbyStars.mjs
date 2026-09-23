@@ -154,6 +154,19 @@ function designation(id) {
   };
 }
 
+/** The archive writes Bayer hosts its own way: "gam1 Leo", "ups And". */
+function hostLabel(hostname) {
+  const m = tidy(hostname).match(/^([a-z]{2,3}\.?) ?(\d)? ([A-Z][A-Za-z]{1,2})(?: (.+))?$/);
+  const greek = m && (GREEK[m[1]] ?? GREEK[`${m[1]}.`]);
+  if (!greek || !GENITIVE[m[3]]) return { short: tidy(hostname), long: null };
+  const upper = m[2] ? SUPERSCRIPT[m[2]] : '';
+  const tail = m[4] ? ` ${m[4]}` : '';
+  return { short: `${greek[0]}${upper} ${m[3]}${tail}`, long: `${greek[1]}${upper} ${GENITIVE[m[3]]}${tail}` };
+}
+
+// SIMBAD files a few designations as names ("NAME iot Cas AB").
+const looksLikeDesignation = (name) => /^([a-z]{2,3}\.?)\d* [A-Z][A-Za-z]{1,2}\b/.test(name);
+
 /**
  * SIMBAD lists several NAME aliases for a few dozen stars ("Sirius", "Sirius A";
  * "Polaris", "North Star", "Lodestar"; "Proxima", "Proxima Cen", "Proxima
@@ -217,6 +230,40 @@ async function main() {
     const hipName = tidy(host.hip_name ?? '');
     if (hipName.startsWith('HIP ')) hostByHip.set(Number(hipName.slice(4)), host);
   }
+  // Hosts the archive gives no Hipparcos number are often Hipparcos stars all
+  // the same: match them by position, or they would be drawn twice. 60 arcsec
+  // allows for 25 years of proper motion between the catalogues' epochs; the
+  // distances must agree too, so a near neighbour on the sky is not taken.
+  const cells = new Map();
+  const cellOf = (ra, dec) => `${Math.floor(dec)}:${Math.floor(ra)}`;
+  for (const r of hip) {
+    const key = cellOf(num(r.RArad), num(r.DErad));
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(r);
+  }
+  const matched = new Set(hostByHip.values());
+  for (const host of hosts.values()) {
+    if (matched.has(host)) continue;
+    const ra = num(host.ra);
+    const dec = num(host.dec);
+    let best = null;
+    const hostPc = num(host.sy_dist);
+    let bestSep = 60 / 3600;
+    for (let dd = -1; dd <= 1; dd++) {
+      for (let dr = -1; dr <= 1; dr++) {
+        for (const r of cells.get(cellOf((ra + dr + 360) % 360, dec + dd)) ?? []) {
+          const dRa = ((num(r.RArad) - ra + 540) % 360 - 180) * Math.cos((dec * Math.PI) / 180);
+          const sep = Math.hypot(dRa, num(r.DErad) - dec);
+          const pc = 1000 / num(r.Plx);
+          if (sep < bestSep && Math.abs(pc - hostPc) < 0.25 * hostPc && !hostByHip.has(Number(r.HIP))) {
+            best = r;
+            bestSep = sep;
+          }
+        }
+      }
+    }
+    if (best) hostByHip.set(Number(best.HIP), host);
+  }
 
   // The star field. The Sun is in it, so from any other star it shines too.
   const stars = [{ x: 0, y: 0, z: 0, M: 4.83, rgb: rgbFromTeff(5772) }];
@@ -248,14 +295,15 @@ async function main() {
     const desigs = (ids?.desigs ?? []).map(designation).filter(Boolean);
     const bayer = desigs.find((d) => d.bayer);
     const flamsteed = desigs.find((d) => !d.bayer);
-    const properNames = (ids?.names ?? []).map((n) => n.slice(5).trim());
+    const properNames = (ids?.names ?? []).map((n) => n.slice(5).trim()).filter((n) => !looksLikeDesignation(n));
     const properName = properNames.length ? bestName(properNames) : null;
     const useFlamsteed = flamsteed && (v < FLAMSTEED_MAX_V || pc < FLAMSTEED_MAX_PC);
     if (!properName && !bayer && !useFlamsteed && !host) continue;
 
-    const label = properName ?? bayer?.short ?? (useFlamsteed ? flamsteed.short : null) ?? tidy(host.hostname);
+    const hostName = host ? hostLabel(host.hostname) : null;
+    const label = properName ?? bayer?.short ?? (useFlamsteed ? flamsteed.short : null) ?? hostName.short;
     const aliases = [...properNames, bayer?.short, bayer?.long, useFlamsteed && flamsteed.short,
-      useFlamsteed && flamsteed.long, host && tidy(host.hostname), `HIP ${hipNo}`].filter((a) => a && a !== label);
+      useFlamsteed && flamsteed.long, host && tidy(host.hostname), hostName?.long, `HIP ${hipNo}`].filter((a) => a && a !== label);
     named.push({
       i: stars.length - 1, name: label, ids: [...new Set(aliases)], sp: sp || null, v: round(v, 2), M: round(M, 2),
       ra: round(num(r.RArad), 5), dec: round(num(r.DErad), 5), pc: round(pc, pc < 10 ? 3 : 1),
@@ -273,8 +321,10 @@ async function main() {
     const v = num(host.sy_vmag);
     const M = Number.isFinite(v) ? v - 5 * Math.log10(pc / 10) : msAbsMag(Number.isFinite(teff) ? teff : 5000);
     stars.push({ ...place(num(host.ra), num(host.dec), pc), M, rgb: rgbFromTeff(Number.isFinite(teff) ? teff : 5000) });
+    const hostName = hostLabel(host.hostname);
     named.push({
-      i: stars.length - 1, name: tidy(host.hostname), ids: [], sp: tidy(host.st_spectype) || null,
+      i: stars.length - 1, name: hostName.short, ids: [hostName.short === tidy(host.hostname) ? null : tidy(host.hostname), hostName.long].filter(Boolean),
+      sp: tidy(host.st_spectype) || null,
       v: Number.isFinite(v) ? round(v, 2) : null, M: round(M, 2), ra: round(num(host.ra), 5), dec: round(num(host.dec), 5),
       pc: round(pc, pc < 10 ? 3 : 1), planets: host.planets
     });

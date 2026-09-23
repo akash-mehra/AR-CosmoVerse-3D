@@ -94,7 +94,9 @@ export class MilkyWayPortal {
     container.append(this.button, this.veil);
 
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.active && !e.target.closest?.('input, textarea, dialog')) this.exit();
+      // During a tour Esc ends the tour, not the visit.
+      if (e.key === 'Escape' && this.active && !this.container.classList.contains('tour-active')
+        && !e.target.closest?.('input, textarea, dialog')) this.exit();
     });
   }
 
