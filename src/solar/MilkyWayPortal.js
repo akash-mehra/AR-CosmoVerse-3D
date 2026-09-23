@@ -3,6 +3,7 @@ import { notify } from '../ui/notify.js';
 import { galacticBasis } from '../data/milkyWay.js';
 import { LayerBlend } from '../rendering/LayerBlend.js';
 import { MPC_PER_UNIT, BAND_INNER, BAND_OUTER, SOLAR_FOV, bandPosition, solarFromMap, mapFromSolar } from './scale.js';
+import { STAR_REACH_MPC } from '../data/nearbyStars.js';
 
 // Camera distance from the galactic centre, in Mpc, inside which the way in
 // appears: about four galaxy diameters, where the disc fills a good part of
@@ -15,6 +16,8 @@ const RETURN_MS = 2400;
 const LY_PER_MPC = 3.2616e6;
 // The map's closest approach to anything but the Sun: the Milky Way filling the view.
 const MAP_MIN_MPC = 0.03;
+// Among the nearby stars, as close as ~200 AU to whichever one is the target.
+const STAR_MIN_MPC = 1e-9;
 // Aimed at the Sun and closer than this (1 kpc), the Solar System is fetched
 // ahead of the zoom reaching it.
 const PREFETCH_MPC = 0.001;
@@ -186,10 +189,12 @@ export class MilkyWayPortal {
     const aimed = this.aimedAtSun();
     const toSun = camera.position.length();
     controls.zoomToCursor = !aimed;
-    // Panning off the Sun up close keeps the distance rather than throwing the
+    // Among the nearby stars the camera may close in on any of them; elsewhere,
+    // panning off the Sun up close keeps the distance rather than throwing the
     // camera back out to the map's usual limit.
-    controls.minDistance = !aimed ? Math.min(MAP_MIN_MPC, camera.position.distanceTo(controls.target))
-      : (this.solarReady ? BAND_INNER : BAND_OUTER) * MPC_PER_UNIT;
+    if (aimed) controls.minDistance = (this.solarReady ? BAND_INNER : BAND_OUTER) * MPC_PER_UNIT;
+    else if (controls.target.length() < STAR_REACH_MPC) controls.minDistance = STAR_MIN_MPC;
+    else controls.minDistance = Math.min(MAP_MIN_MPC, camera.position.distanceTo(controls.target));
     if (!aimed || this.busy) return false;
 
     if (toSun < PREFETCH_MPC && !this.loading) {
@@ -327,9 +332,14 @@ export class MilkyWayPortal {
   }
 
   async loadSolar() {
-    const { SolarSystem } = await import('./SolarSystem.js');
+    // The star field gives the Solar System its sky; without it the sky is
+    // random, which is no reason to fail the trip.
+    const [{ SolarSystem }, field] = await Promise.all([
+      import('./SolarSystem.js'),
+      this.scene.stars.load().catch(() => null)
+    ]);
     if (!this.solar) {
-      this.solar = new SolarSystem(this.scene.renderer, this.container);
+      this.solar = new SolarSystem(this.scene.renderer, this.container, field);
       this.solar.onExit = () => this.exit();
     }
     await this.solar.load();

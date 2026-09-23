@@ -443,7 +443,7 @@ export class HUD {
       meta.className = 'search-result-meta';
       meta.textContent = entry.landmark
         ? entry.typeLabel
-        : `${entry.typeLabel ?? OTYPE_LABELS[entry.otype] ?? entry.otype} · ${formatDistance(entry.distanceMpc)}`;
+        : `${entry.typeLabel ?? OTYPE_LABELS[entry.otype] ?? entry.otype} · ${entry.distanceText ?? formatDistance(entry.distanceMpc)}`;
       item.append(name, meta);
       list.append(item);
     });

@@ -5,6 +5,7 @@ import galaxyFrag from './shaders/galaxy.frag?raw';
 import { BOOTES_VOID_CENTER, SLOAN_GREAT_WALL } from '../data/sdssGenerator.js';
 import { MilkyWayModel } from './MilkyWayModel.js';
 import { accelerateZoom } from './accelerateZoom.js';
+import { NearbyStars } from './NearbyStars.js';
 
 // Birth flash length: long enough to see one galaxy land in slow motion, short
 // enough not to smear the whole frontier at full speed.
@@ -69,13 +70,17 @@ export class GalaxyScene {
       uPixelRatio: { value: this.pixelRatio },
       // Star trails: how far a point stretches, and which way on screen.
       uTrailAmount: { value: 0.0 },
-      uTrailDir: { value: new THREE.Vector2(1, 0) }
+      uTrailDir: { value: new THREE.Vector2(1, 0) },
+      uAmongStars: { value: 0 }
     };
 
     // 5. Build Earth origin & Coordinate axes
     this.createCosmicLandmarkBeacons();
     this.milkyWay = new MilkyWayModel();
     this.scene.add(this.milkyWay.points);
+    // Real stars within 1 kpc of the Sun, fetched when the camera nears them.
+    this.stars = new NearbyStars();
+    this.scene.add(this.stars.points);
 
     // 6. Camera flight & Cinematic Auto-Orbit state
     this.cameraFlight = null;
@@ -459,6 +464,8 @@ export class GalaxyScene {
       this.camera.updateProjectionMatrix();
     }
     this.milkyWay.update(this.camera, this.height * this.pixelRatio * 0.5, this.pixelRatio);
+    this.stars.update(this.camera, this.pixelRatio);
+    this.uniforms.uAmongStars.value = this.stars.points.visible ? this.stars.material.uniforms.uOpacity.value : 0;
   }
 
   update(deltaTime) {

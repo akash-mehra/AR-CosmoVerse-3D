@@ -55,6 +55,9 @@
 - 🌌 **The Milky Way — and what is inside it**
   Our own galaxy sits where it belongs: a barred spiral in the true galactic plane, its centre 8.2 kpc from the Sun at the map's origin. Zoom in close and see what happens — a wormhole ride takes you to a whole Solar System, with moons, belts, dwarf planets, a comet, the real night sky around it, a detail card for everything, and a grand tour.
 
+- ⭐ **The stars around the Sun**
+  63,000 real stars within 1 kpc, each at its measured distance and drawn as bright as it looks *from wherever you are* — near the Sun it is the night sky; fly to Alpha Centauri and the Sun is a bright star behind you. Search any named star (`Sirius`, `Tau Ceti`, `Alpha Centauri`, `TRAPPIST-1`) to fly there; cards give its brightness, distance, how long its light took, and its known planets.
+
 - 🔭 **One zoom, from the cosmic web to the planets**
   Press **Earth Origin** and keep scrolling: through the Milky Way, down to a few light-years from the Sun, where the Solar System fades in around it, and on in to the planets — no cuts. Scroll out and it runs the other way. Keep the wheel turning and the zoom speeds up.
 
@@ -72,6 +75,7 @@
 | :--- | :--- | :--- |
 | **Synthetic SDSS DR18 catalog** | Generated in-browser at startup | 240,000 objects with a modelled cosmic web, Boötes Void and Sloan Great Wall. Instant and offline. |
 | **SIMBAD (CDS Strasbourg)** | 🔴/🟢 **SIMBAD** push button in the header | ~40,000 **real** galaxies and quasars with measured redshifts, fetched live over the SIMBAD TAP `/sync` endpoint. Push again to switch back. |
+| **Nearby stars** (Hipparcos, SIMBAD, NASA Exoplanet Archive) | Fetched when you zoom within a few kpc of the Sun | 63,000 real stars within 1 kpc at their parallax distances, with names, designations and 3,800 planet hosts. Built by `npm run fetch:stars`; credits in `public/data/stars/CREDITS.md`. |
 | **Custom CSV** | 📂 **Import CSV** button | Any table with `ra`, `dec`, `z` (or `redshift`) and an optional `class` column; SDSS CasJobs `#` comment lines are skipped. Up to 1,000,000 rows. |
 
 ### How the SIMBAD query works
@@ -180,7 +184,8 @@ CosmoVerse-3D/
 │       ├── survey_wedge.png
 │       └── quasar_dawn.png
 ├── scripts/
-│   └── fetchNamedObjects.mjs # Builds the named-object catalogue from SIMBAD TAP
+│   ├── fetchNamedObjects.mjs # Builds the named-object catalogue from SIMBAD TAP
+│   └── fetchNearbyStars.mjs  # Builds the nearby-stars layer (Hipparcos, SIMBAD, NASA)
 ├── src/
 │   ├── ar/                  # Camera passthrough AR, hand tracking & gesture control
 │   ├── controller/          # PlottingController stream logic

@@ -137,15 +137,39 @@ const wrap180 = (deg) => ((((deg + 180) % 360) + 360) % 360) - 180;
  * and split by the Great Rift — the dust lanes that hide the stars behind
  * them between Cygnus and Sagittarius.
  */
-function starPoints(pixelRatio) {
+// The real sky, from the nearby-stars layer: the brightest stars as seen from
+// the Sun, so zooming out of the Solar System lands on the same pattern.
+const REAL_FIELD = 9000;
+
+function realField(field, positions, colors, sizes) {
+  const { count, positions: at, absMag, colors: rgb } = field;
+  const seen = [];
+  const p = new THREE.Vector3();
+  for (let i = 0; i < count; i++) {
+    const pc = Math.hypot(at[i * 3], at[i * 3 + 1], at[i * 3 + 2]) * 1e6;
+    if (pc > 0) seen.push([absMag[i] + 5 * Math.log10(pc) - 5, i]);
+  }
+  seen.sort((a, b) => a[0] - b[0]);
+  for (const [m, i] of seen.slice(0, REAL_FIELD)) {
+    solarFromMap(p.set(at[i * 3], at[i * 3 + 1], at[i * 3 + 2]).normalize(), p).multiplyScalar(SKY_RADIUS);
+    positions.push(p.x, p.y, p.z);
+    const b = THREE.MathUtils.clamp(0.3 + (6.5 - m) * 0.1, 0.22, 1);
+    colors.push((rgb[i * 3] / 255) * b, (rgb[i * 3 + 1] / 255) * b, (rgb[i * 3 + 2] / 255) * b);
+    sizes.push(1.2 + Math.max(0, 3.5 - m) * 0.55);
+  }
+}
+
+function starPoints(pixelRatio, field) {
   const rand = mulberry32(7);
   const gauss = () => Math.sqrt(-2 * Math.log(Math.max(rand(), 1e-9))) * Math.cos(2 * Math.PI * rand());
-  const FIELD = 7000;
+  // Random stars stand in only if the real ones could not be loaded.
+  const FIELD = field ? 0 : 7000;
   const BAND = 26000;
   const positions = [];
   const colors = [];
   const sizes = [];
   const v = new THREE.Vector3();
+  if (field) realField(field, positions, colors, sizes);
 
   for (let i = 0; i < FIELD; i++) {
     const lon = rand() * Math.PI * 2;
@@ -242,9 +266,9 @@ function objectSprite(obj) {
  * Returns the group (move it with the camera), the star material (for the
  * warp) and the named objects with their directions.
  */
-export function createSky(pixelRatio) {
+export function createSky(pixelRatio, field = null) {
   const group = new THREE.Group();
-  const stars = starPoints(pixelRatio);
+  const stars = starPoints(pixelRatio, field);
   group.add(stars);
   bandGlow(group);
 

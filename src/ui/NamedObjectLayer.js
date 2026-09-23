@@ -9,6 +9,11 @@ const LABEL_GAP_PX = 6;
 // Length of the leader that lifts a label clear of its point (.named-label::after).
 const LABEL_LEADER_PX = 10;
 const DRAG_TOLERANCE_PX = 6;
+// Named stars label once the camera is within 2 kpc of the Sun, and then only
+// those that look brighter than this from where it stands (deeper further out,
+// in step with the star layer's own limit).
+const STAR_TIER_MPC = 0.002;
+const STAR_LABEL_MAG = 2.5;
 
 export const OTYPE_LABELS = {
   G: 'Galaxy',
@@ -42,11 +47,19 @@ export const OTYPE_LABELS = {
 /** Cheap proxy for label width — measuring the DOM every frame would force a layout. */
 const estimateLabelWidth = (label) => label.length * 7 + 34;
 
-// Satellites and the Milky Way itself sit well under 0.1 Mpc, which "0.0 Mpc" hid.
-export const formatDistance = (mpc) => (mpc >= 1000 ? `${(mpc / 1000).toFixed(2)} Gpc`
-  : mpc >= 0.1 ? `${mpc.toFixed(1)} Mpc` : `${(mpc * 1000).toFixed(1)} kpc`);
+// Satellites and the Milky Way itself sit well under 0.1 Mpc, which "0.0 Mpc"
+// hid; stars sit under a kiloparsec, where parsecs and light-years read best.
+export const formatDistance = (mpc) => {
+  if (mpc >= 1000) return `${(mpc / 1000).toFixed(2)} Gpc`;
+  if (mpc >= 0.1) return `${mpc.toFixed(1)} Mpc`;
+  if (mpc >= 0.001) return `${(mpc * 1000).toFixed(1)} kpc`;
+  const pc = mpc * 1e6;
+  return `${pc < 10 ? pc.toFixed(2) : Math.round(pc)} pc · ${(pc * 3.26156).toLocaleString('en-US', { maximumFractionDigits: pc < 10 ? 1 : 0 })} ly`;
+};
 const formatLookback = (gyr) => (gyr >= 0.01 ? `${gyr.toFixed(2)} Gyr`
-  : gyr >= 0.001 ? `${(gyr * 1000).toFixed(1)} Myr` : `${(gyr * 1e6).toFixed(1)} kyr`);
+  : gyr >= 0.001 ? `${(gyr * 1000).toFixed(1)} Myr` : gyr >= 1e-6 ? `${(gyr * 1e6).toFixed(1)} kyr`
+    : `${(gyr * 1e9).toLocaleString('en-US', { maximumFractionDigits: gyr < 1e-7 ? 1 : 0 })} years`);
+const formatMagnitude = (m) => `${m < 0 ? '−' : ''}${Math.abs(m).toFixed(2)}`;
 const formatRedshift = (z) => (Number.isFinite(z) ? `z = ${Math.abs(z) < 0.01 ? z.toFixed(5) : z.toFixed(4)}` : 'not measured');
 
 /**
@@ -59,6 +72,9 @@ export class NamedObjectLayer {
     this.container = container;
     this.scene = scene;
     this.objects = [];
+    // Named objects that ride along with every dataset (the nearby stars).
+    this.extraObjects = [];
+    this.datasetObjects = [];
     this.candidates = [];
     this.selected = null;
     this.cardSize = { width: 272, height: 260 };
@@ -172,9 +188,16 @@ export class NamedObjectLayer {
   }
 
   setDataset(catalogData) {
-    this.objects = catalogData.named ?? [];
+    this.datasetObjects = catalogData.named ?? [];
+    this.objects = [...this.datasetObjects, ...this.extraObjects];
     this.candidates = [];
     this.clearSelection();
+  }
+
+  /** Objects that are not part of any catalog and survive swapping it. */
+  addObjects(list) {
+    this.extraObjects = list;
+    this.objects = [...this.datasetObjects, ...this.extraObjects];
   }
 
   /** Projects a world position to screen pixels, or null when off screen or behind the camera. */
@@ -199,11 +222,23 @@ export class NamedObjectLayer {
 
     const { camera, controls } = this.scene;
     const localTierActive = camera.position.distanceTo(controls.target) < LOCAL_MAX_MPC;
+    const toSunPc = camera.position.length() * 1e6;
+    const starTierActive = toSunPc < STAR_TIER_MPC * 1e6;
+    const starLabelMag = STAR_LABEL_MAG + 5 * Math.log10(Math.max(toSunPc, 10) / 10);
 
     this.candidates.length = 0;
     for (const obj of this.objects) {
-      const tierMatches = (obj.tier === 'local') === localTierActive;
-      if (obj !== this.selected && (!tierMatches || !this.isDrawn(obj))) continue;
+      if (obj.tier === 'star') {
+        if (!starTierActive && obj !== this.selected) continue;
+        // Ranked by how bright it looks from here, so the labels follow the sky.
+        const pc = Math.max(camera.position.distanceTo(obj.position) * 1e6, 1e-6);
+        const seen = obj.absMag + 5 * Math.log10(pc) - 5;
+        if (seen > starLabelMag && obj !== this.selected) continue;
+        obj.weight = 200 - 10 * seen;
+      } else {
+        const tierMatches = (obj.tier === 'local') === localTierActive;
+        if (obj !== this.selected && (!tierMatches || !this.isDrawn(obj))) continue;
+      }
 
       const screen = this.projectToScreen(obj.position);
       if (!screen) continue;
@@ -326,18 +361,24 @@ export class NamedObjectLayer {
   select(obj) {
     this.selected = obj;
 
-    const lookbackGyr = obj.tier === 'local' ? obj.lookbackGyr : lookbackTimeGyr(obj.z);
+    const lookbackGyr = obj.lookbackGyr ?? lookbackTimeGyr(obj.z);
     const set = (selector, value) => {
       this.card.querySelector(selector).textContent = value;
     };
 
+    // A star has no redshift worth quoting and no lookback worth the word:
+    // its rows say how bright it is and how long its light took instead.
+    const star = obj.tier === 'star';
+    this.card.querySelector('.named-card-z').previousElementSibling.textContent = star ? 'Brightness' : 'Redshift';
+    this.card.querySelector('.named-card-lookback').previousElementSibling.textContent = star ? 'Light left it' : 'Lookback';
+
     set('.named-card-title', obj.label);
     set('.named-card-type', obj.typeLabel ?? OTYPE_LABELS[obj.otype] ?? obj.otype);
     set('.named-card-ids', obj.ids.length ? obj.ids.join(' · ') : obj.mainId);
-    set('.named-card-coords', `${obj.ra.toFixed(3)}° / ${obj.dec >= 0 ? '+' : ''}${obj.dec.toFixed(3)}°`);
-    set('.named-card-z', formatRedshift(obj.z));
-    set('.named-card-distance', formatDistance(obj.distanceMpc));
-    set('.named-card-lookback', formatLookback(lookbackGyr));
+    set('.named-card-coords', obj.coordsText ?? `${obj.ra.toFixed(3)}° / ${obj.dec >= 0 ? '+' : ''}${obj.dec.toFixed(3)}°`);
+    set('.named-card-z', !star ? formatRedshift(obj.z) : `${Number.isFinite(obj.appMag) ? `V ${formatMagnitude(obj.appMag)} from Earth · ` : ''}absolute ${formatMagnitude(obj.absMag)}`);
+    set('.named-card-distance', obj.distanceText ?? formatDistance(obj.distanceMpc));
+    set('.named-card-lookback', obj.lightText ?? (star ? `${formatLookback(lookbackGyr)} ago` : formatLookback(lookbackGyr)));
     set(
       '.named-card-note',
       obj.note ?? (obj.tier === 'local'
