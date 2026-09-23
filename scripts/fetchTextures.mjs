@@ -175,10 +175,13 @@ async function resolveSource(body) {
   return { file: await download(url, sum), left: leftEdgeFromLabel(label), url };
 }
 
-/** Moves the column at longitude `left` to the left edge, where -180° belongs. */
+/**
+ * Moves the column at longitude `left` to the left edge, where -180° belongs,
+ * and mends the join between the mosaic's own first and last columns, which
+ * are often dark (Europa's showed as a line down 0° longitude).
+ */
 function reframe(data, width, height, channels, left) {
   const shift = Math.round((((((left + 180) % 360) + 360) % 360) / 360) * width) % width;
-  if (shift === 0) return data;
   const out = Buffer.alloc(data.length);
   const row = width * channels;
   const cut = (width - shift) * channels;
@@ -186,6 +189,15 @@ function reframe(data, width, height, channels, left) {
     const o = y * row;
     data.copy(out, o + shift * channels, o, o + cut);
     data.copy(out, o, o + cut, o + row);
+  }
+  const col = (x) => ((x % width) + width) % width;
+  const [before, last, first, after] = [shift - 2, shift - 1, shift, shift + 1].map(col);
+  for (let y = 0; y < height; y++) {
+    for (let c = 0; c < channels; c++) {
+      const at = (x) => (y * width + x) * channels + c;
+      out[at(last)] = Math.round((2 * out[at(before)] + out[at(after)]) / 3);
+      out[at(first)] = Math.round((out[at(before)] + 2 * out[at(after)]) / 3);
+    }
   }
   return out;
 }

@@ -76,7 +76,7 @@
 | **Synthetic SDSS DR18 catalog** | Generated in-browser at startup | 240,000 objects with a modelled cosmic web, Boötes Void and Sloan Great Wall. Instant and offline. |
 | **SIMBAD (CDS Strasbourg)** | 🔴/🟢 **SIMBAD** push button in the header | ~40,000 **real** galaxies and quasars with measured redshifts, fetched live over the SIMBAD TAP `/sync` endpoint. Push again to switch back. |
 | **Nearby stars** (Hipparcos, SIMBAD, NASA Exoplanet Archive) | Fetched when you zoom within a few kpc of the Sun | 63,000 real stars within 1 kpc at their parallax distances, with names, designations and 3,800 planet hosts. Built by `npm run fetch:stars`; credits in `public/data/stars/CREDITS.md`. |
-| **Moon, moon and dwarf-planet maps** (NASA SVS, NASA image library, the PDS) | Built ahead of time by `npm run fetch:textures`; not yet drawn in the app | Global maps of the Moon, Io, Europa, Ganymede, Callisto, Mimas, Enceladus, Tethys, Dione, Rhea, Titan, Iapetus, Pluto, Charon and Ceres at ~2K (5.8 MB in all) and ~4K (19 MB), plus the Moon's relief. Credits in `public/textures/bodies/CREDITS.md`. |
+| **Spacecraft maps of Earth, moons and dwarf planets** (NASA Earth Observatory, NASA SVS, NASA image library, the PDS) | Each loads as you fly close to its body; built by `npm run fetch:textures` | Earth (Blue Marble, city lights at night, clouds), the Moon with its relief, Phobos, the Galilean and major Saturnian moons, Triton, Pluto, Charon and Ceres, at ~2K (7.0 MB in all) and ~4K (23 MB). Cards say whose map it is, how much was actually seen, or that a surface is an artist's impression. Credits in `public/textures/bodies/CREDITS.md`. |
 | **Custom CSV** | 📂 **Import CSV** button | Any table with `ra`, `dec`, `z` (or `redshift`) and an optional `class` column; SDSS CasJobs `#` comment lines are skipped. Up to 1,000,000 rows. |
 
 ### How the SIMBAD query works
@@ -213,7 +213,7 @@ CosmoVerse-3D/
 Distributed under the MIT License.
 
 Planet texture maps in `public/textures/solar/` are by [Solar System Scope](https://www.solarsystemscope.com/textures/), based on NASA imagery, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — see `CREDITS.md` there.
-The Moon, moon and dwarf-planet maps in `public/textures/bodies/` are NASA spacecraft mosaics in the public domain; each one's credit and source is in `CREDITS.md` there.
+The Earth, moon and dwarf-planet maps in `public/textures/bodies/` are NASA spacecraft maps and mosaics in the public domain; each one's credit and source is in `CREDITS.md` there.
 
 ---
 
