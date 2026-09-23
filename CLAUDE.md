@@ -46,6 +46,11 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 3 | Gesture control: two-handed sky turning, inertia, star trails | Done, untested on a real device |
 | 3a | Milky Way, name search, Solar System: moons, belts, dwarf planets, comet, real sky, cards, travel | Done; Solar System not yet reachable from AR |
 | 3b | Continuous scale: one zoom from the cosmic web down to the planets | Engine and nearby-stars layer done; a tour engine was built and pulled, to be revisited |
+| 3c | Map data pipeline: `fetch:textures`, two sizes per map, manifest, credits, `VITE_TEXTURE_BASE` | In progress |
+| 3d | Planet detail: atmospheres, Earth clouds + night lights, the Moon's relief, photo maps for moons | Not started |
+| 3e | Sharper maps near bodies: 4K in on approach, out on leaving, phones capped | Not started |
+| 3f | Optional HD download: prompt with the real size, service worker cache, cache-first loading | Not started |
+| 3g | Landing on Earth: true-scale Earth layer, GIBS / Blue Marble to region level, a dormant Google 3D Tiles slot | Not started |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
 **Phase 3a notes.** The Milky Way was missing — only a 1 Mpc "Earth" sphere at
@@ -100,6 +105,56 @@ engine (tours as data, narrated chapters) was built and then pulled by the
 owner to be revisited later; it is in the history as #18.
 Undecided and the owner's call: true scale versus cinematic compression, guided
 versus free, phone-first versus desktop/VR, download budget, narration voice.
+
+**Phases 3c–3g plan** (agreed with the owner; each ends at its "done when").
+- **3c, map data pipeline.** Check USGS, NASA and GIBS through the proxy
+  first. `npm run fetch:textures` downloads the Moon (LRO colour map and
+  elevation), the Galilean and Saturnian moons, Pluto, Charon and Ceres, saves
+  each at ~2K (everyday) and ~4K (close-up), and writes a manifest of files and
+  sizes plus `CREDITS.md`. Record every map's licence and refuse a source
+  without one: several well-known moon maps are enthusiasts' mosaics under
+  their own terms. One setting, `VITE_TEXTURE_BASE`, says where maps live (the
+  Vercel deploy by default), so a later move to other hosting is one line; a
+  different origin must send CORS headers or WebGL cannot use the maps. Done
+  when the manifest exists and the real download size is known.
+- **3d, planet detail.** An atmosphere shader tuned from NASA fact-sheet values
+  (Earth, Mars, Venus, Titan); Earth's cloud layer and night-side city lights
+  (Blue and Black Marble); the Moon's LRO map with relief as a normal map
+  derived at build time, not a displaced dense mesh; photo maps for Jupiter's
+  and Saturn's moons. Surfaces no spacecraft saw stay procedural and are
+  labelled as an artist's impression. Done when every body with real data uses
+  it and the rest say so.
+- **3e, sharper maps near bodies.** 4K maps load on approach and unload on
+  leaving; phones stay capped at what they can hold. A 4K RGBA map is ~90 MB
+  of GPU memory with mipmaps whatever its file size, so the file format
+  (JPEG/WebP versus KTX2, which needs a transcoder) sets whether that cap is
+  2K or 4K. Done when flying up to any body sharpens it without a memory spike
+  on a phone.
+- **3f, optional HD download.** On the way into the Milky Way, a prompt with
+  the real size (Download / Not now, remembered). A service worker saves the
+  maps to the Cache API with progress and cancel and asks for persistent
+  storage; loading checks the cache first, so a partial download still helps.
+  It caches map files only, never the page, or deploy previews go stale. Warn
+  on metered or slow connections where the browser says so, "best on Wi-Fi"
+  elsewhere. Whether maps are downloaded is judged from the cache, because iOS
+  clears a site's storage after ~7 days without a visit (home-screen apps
+  excepted): the user is simply asked again. Done when yes and no both give a
+  working trip and a cancelled download still speeds things up.
+- **3g, landing on Earth.** A true-scale Earth layer handed over from the
+  Solar System's Earth, joined by a band like the map and the Solar System;
+  NASA GIBS or Blue Marble imagery down to region level; an empty, inactive
+  slot for Google Photorealistic 3D Tiles until its pricing is checked. When it
+  is switched on, its key runs in the browser (restrict it to the site's
+  domains), Google's attribution must show, and its tiles must stay out of the
+  3f cache, which Google's terms forbid. Done when you can descend from orbit
+  to region level with the Google slot ready.
+- **Still unplaced:** reaching the Solar System from AR (open since 3a). 3g
+  adds another layer AR cannot reach, so decide whether it goes before 3g or
+  into Phase 4.
+- **Parked:** the spaceship (a chase camera suggested, not confirmed); the
+  tour; OpenStreetMap buildings, street view and a move to Cloudflare; the
+  open decisions (true or cinematic scale, guided or free, phone or
+  desktop/VR, narration voice).
 
 **Phase 3 notes.** Modelled on the Moon Knight sky-turning shot the owner
 supplied: open palms raised, the celestial sphere swinging past a stationary
