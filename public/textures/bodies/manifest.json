@@ -19,13 +19,13 @@
             "file": "earth_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 197855
+            "bytes": 197697
           },
           "4k": {
             "file": "earth_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 665826
+            "bytes": 665721
           }
         },
         "night": {
@@ -33,13 +33,13 @@
             "file": "earth_night_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 99788
+            "bytes": 99781
           },
           "4k": {
             "file": "earth_night_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 348837
+            "bytes": 348854
           }
         },
         "clouds": {
@@ -47,13 +47,13 @@
             "file": "earth_clouds_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 470952
+            "bytes": 470897
           },
           "4k": {
             "file": "earth_clouds_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1717441
+            "bytes": 1717308
           }
         }
       }
@@ -72,13 +72,13 @@
             "file": "moon_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 254687
+            "bytes": 254655
           },
           "4k": {
             "file": "moon_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 980321
+            "bytes": 980136
           }
         },
         "normal": {
@@ -86,13 +86,13 @@
             "file": "moon_normal_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 256074
+            "bytes": 256063
           },
           "4k": {
             "file": "moon_normal_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1082328
+            "bytes": 1082108
           }
         }
       }
@@ -111,13 +111,13 @@
             "file": "phobos_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 334413
+            "bytes": 334386
           },
           "4k": {
             "file": "phobos_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1166323
+            "bytes": 1166256
           }
         }
       }
@@ -136,13 +136,13 @@
             "file": "io_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 236683
+            "bytes": 236634
           },
           "4k": {
             "file": "io_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 714975
+            "bytes": 714888
           }
         }
       }
@@ -161,13 +161,13 @@
             "file": "europa_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 354517
+            "bytes": 354288
           },
           "4k": {
             "file": "europa_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1289596
+            "bytes": 1288641
           }
         }
       }
@@ -186,13 +186,13 @@
             "file": "ganymede_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 293455
+            "bytes": 293022
           },
           "4k": {
             "file": "ganymede_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1152906
+            "bytes": 1151325
           }
         }
       }
@@ -211,13 +211,13 @@
             "file": "callisto_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 276414
+            "bytes": 276406
           },
           "4k": {
             "file": "callisto_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1093147
+            "bytes": 1092908
           }
         }
       }
@@ -236,13 +236,13 @@
             "file": "mimas_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 377204
+            "bytes": 377181
           },
           "4k": {
             "file": "mimas_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1008090
+            "bytes": 1008222
           }
         }
       }
@@ -261,13 +261,13 @@
             "file": "enceladus_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 565266
+            "bytes": 565235
           },
           "4k": {
             "file": "enceladus_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1833931
+            "bytes": 1834039
           }
         }
       }
@@ -286,13 +286,13 @@
             "file": "tethys_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 528356
+            "bytes": 528510
           },
           "4k": {
             "file": "tethys_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1521965
+            "bytes": 1522395
           }
         }
       }
@@ -311,13 +311,13 @@
             "file": "dione_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 593732
+            "bytes": 593637
           },
           "4k": {
             "file": "dione_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1825623
+            "bytes": 1825454
           }
         }
       }
@@ -336,13 +336,13 @@
             "file": "rhea_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 384037
+            "bytes": 384067
           },
           "4k": {
             "file": "rhea_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1150044
+            "bytes": 1150123
           }
         }
       }
@@ -361,13 +361,13 @@
             "file": "titan_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 228973
+            "bytes": 228925
           },
           "4k": {
             "file": "titan_4k.jpg",
             "width": 4040,
             "height": 2020,
-            "bytes": 815505
+            "bytes": 815365
           }
         }
       }
@@ -386,13 +386,13 @@
             "file": "iapetus_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 452059
+            "bytes": 452068
           },
           "4k": {
             "file": "iapetus_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1251563
+            "bytes": 1251623
           }
         }
       }
@@ -412,13 +412,13 @@
             "file": "triton_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 167727
+            "bytes": 165193
           },
           "4k": {
             "file": "triton_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 533835
+            "bytes": 526841
           }
         }
       }
@@ -437,13 +437,13 @@
             "file": "pluto_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 242621
+            "bytes": 233161
           },
           "4k": {
             "file": "pluto_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 848322
+            "bytes": 753255
           }
         }
       }
@@ -462,13 +462,13 @@
             "file": "charon_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 203127
+            "bytes": 200245
           },
           "4k": {
             "file": "charon_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 690002
+            "bytes": 679374
           }
         }
       }
@@ -487,13 +487,13 @@
             "file": "ceres_2k.jpg",
             "width": 2048,
             "height": 1024,
-            "bytes": 515134
+            "bytes": 515066
           },
           "4k": {
             "file": "ceres_4k.jpg",
             "width": 4096,
             "height": 2048,
-            "bytes": 1728678
+            "bytes": 1728568
           }
         }
       }
@@ -502,11 +502,11 @@
   "totals": {
     "2k": {
       "files": 21,
-      "bytes": 7033074
+      "bytes": 7017117
     },
     "4k": {
       "files": 21,
-      "bytes": 23419258
+      "bytes": 23303404
     }
   }
 }

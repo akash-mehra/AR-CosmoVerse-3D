@@ -24,7 +24,7 @@ const BODY_ROOT = `${TEXTURE_BASE}bodies/`;
 const PHOTO_PX = 12;
 // The Moon's normal map holds true slopes; drawn deeper so its relief reads.
 const MOON_RELIEF = 2.5;
-// Below this share of its surface photographed, a map's black gaps are painted in.
+// Below this share of its surface photographed, a card says how much was seen.
 const MOSTLY_SEEN = 0.98;
 const TIME_SPEEDS = [0, 1, 10, 100];
 // Arrival from interstellar space: fast at first, easing in to the planets.
@@ -66,32 +66,6 @@ function averageColour(image) {
   return sum.map((v) => v / top);
 }
 
-/**
- * A spacecraft map with what no spacecraft saw (black in the mosaic) taken
- * from the painted surface, and the rest tinted: the seen part stays real.
- */
-function fillUnseen(photo, painted, tint) {
-  const canvas = document.createElement('canvas');
-  canvas.width = photo.width;
-  canvas.height = photo.height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(painted, 0, 0, canvas.width, canvas.height);
-  const fill = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  ctx.drawImage(photo, 0, 0);
-  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const p = image.data;
-  for (let i = 0; i < p.length; i += 4) {
-    // JPEG leaves the black fill a little noisy.
-    const unseen = p[i] + p[i + 1] + p[i + 2] < 18;
-    for (let c = 0; c < 3; c++) p[i + c] = unseen ? fill[i + c] : p[i + c] * tint[c];
-  }
-  ctx.putImageData(image, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
-  return texture;
-}
-
 /** City lights only on the night side, fading in through twilight. The Sun is at the origin. */
 function nightSideOnly(shader) {
   shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
@@ -102,8 +76,8 @@ function nightSideOnly(shader) {
 /** Where a body's surface comes from, for its card. */
 function surfaceNote(body, entry) {
   if (entry) {
-    const seen = entry.note ? ` ${entry.note}; what it never saw is painted in.`
-      : entry.imaged < MOSTLY_SEEN ? ` ${Math.round(entry.imaged * 100)}% of it has been photographed; the rest is an artist's impression.` : '';
+    const seen = entry.note ? ` ${entry.note}; what it never saw is left plain.`
+      : entry.imaged < MOSTLY_SEEN ? ` ${Math.round(entry.imaged * 100)}% of it has been photographed; the rest is left plain.` : '';
     return `Map: ${entry.credit}.${seen}`;
   }
   if (!body.mesh.material.map?.isCanvasTexture) return 'Map: Solar System Scope, from NASA imagery (CC BY 4.0).';
@@ -761,8 +735,8 @@ export class SolarSystem {
 
   /**
    * Puts a body's spacecraft maps on it: the colour map (a greyscale one tinted
-   * to the body's overall colour, gaps painted in), the Moon's relief, and
-   * Earth's night lights and clouds.
+   * to the body's overall colour), the Moon's relief, and Earth's night lights
+   * and clouds.
    */
   async applyMaps(body, entry) {
     const load = async (map, colour = true) => {
@@ -773,15 +747,8 @@ export class SolarSystem {
     };
     const { material } = body.mesh;
     const painted = material.map?.isCanvasTexture ? material.map.image : null;
-    let map = await load(entry.maps.color);
-    const tint = entry.grey && painted ? averageColour(painted) : [1, 1, 1];
-    if (painted && !(entry.imaged >= MOSTLY_SEEN)) {
-      const photo = map;
-      map = fillUnseen(photo.image, painted, tint);
-      photo.dispose();
-    } else {
-      material.color.setRGB(...tint, THREE.SRGBColorSpace);
-    }
+    const map = await load(entry.maps.color);
+    if (entry.grey && painted) material.color.setRGB(...averageColour(painted), THREE.SRGBColorSpace);
     const old = material.map;
     material.map = map;
     old?.dispose();

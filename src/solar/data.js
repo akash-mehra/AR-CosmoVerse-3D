@@ -191,7 +191,7 @@ export const MOONS = [
       fact: 'Saturn\'s second-largest moon: a cold, cratered ball of ice and rock.' } },
   { name: 'Titan', parent: 'Saturn', radiusKm: 2574.7, aKm: 1221870, period: 15.945, incl: 0.3, surface: 'titan',
     // Pressure ~60% above Earth's, air 600 km high, an orange haze that hides the ground (NASA).
-    atmosphere: { pressureMb: 1.6 * 1014, extentKm: 600, veil: 0.8, colour: [0.95, 0.62, 0.28], sunset: [0.6, 0.3, 0.1] },
+    atmosphere: { pressureMb: 1.6 * 1014, extentKm: 600, veil: 0.92, colour: [0.95, 0.62, 0.28], sunset: [0.6, 0.3, 0.1] },
     info: { type: 'Moon of Saturn', rows: [['Diameter', '5,150 km'], ['Orbit', '15.9 days']],
       fact: 'The only moon with a thick atmosphere — and with rain, rivers and seas of liquid methane.' } },
   { name: 'Iapetus', parent: 'Saturn', radiusKm: 734.5, aKm: 3560820, period: 79.32, incl: 15.5, surface: 'iapetus',

@@ -27,6 +27,8 @@ const OUT = 'public/textures/bodies';
 const CACHE = 'node_modules/.cache/fetch-textures';
 const SIZES = { '2k': 2048, '4k': 4096 };
 const JPEG = { quality: 85, mozjpeg: true };
+// Below this share of its surface photographed, a map's black gaps are filled.
+const MOSTLY_SEEN = 0.98;
 const CONVENTION = 'Equirectangular, north up, east to the right, 0° longitude at the centre and 180° at both edges.';
 
 const PDS = 'https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/';
@@ -219,6 +221,59 @@ function imagedFraction(data, width, height, channels) {
   return Math.round((seen / total) * 1000) / 1000;
 }
 
+/** One pass along rows (wrapping round the globe) or columns: the max or mean over ±r pixels. */
+function spread(src, w, h, r, alongRows, max) {
+  const out = new Float32Array(src.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let d = -r; d <= r; d++) {
+        const v = alongRows ? src[y * w + ((x + d + w) % w)] : src[Math.min(Math.max(y + d, 0), h - 1) * w + x];
+        acc = max ? Math.max(acc, v) : acc + v;
+      }
+      out[y * w + x] = max ? acc : acc / (2 * r + 1);
+    }
+  }
+  return out;
+}
+
+/**
+ * Fills what no spacecraft saw (black in the mosaic) with the average colour
+ * of what was seen, feathered over a few pixels that also cover the dark
+ * fringe resampling leaves along the gap. Unknown ground reads as plain, not
+ * as black holes or invented features.
+ */
+function fillUnseen(data, width, height, channels) {
+  const gap = new Float32Array(width * height);
+  const sum = new Array(channels).fill(0);
+  let seen = 0;
+  for (let k = 0; k < gap.length; k++) {
+    let total = 0;
+    for (let c = 0; c < channels; c++) total += data[k * channels + c];
+    if (total <= 2 * channels) {
+      gap[k] = 1;
+      continue;
+    }
+    for (let c = 0; c < channels; c++) sum[c] += data[k * channels + c];
+    seen++;
+  }
+  if (!seen) return data;
+  // 2 px of fringe and 4 px of feather at 2K, twice that at 4K.
+  const r = Math.max(1, Math.round(width / 1024));
+  let blend = spread(spread(gap, width, height, r, true, true), width, height, r, false, true);
+  blend = spread(spread(blend, width, height, 2 * r, true, false), width, height, 2 * r, false, false);
+  const out = Buffer.from(data);
+  for (let k = 0; k < gap.length; k++) {
+    const a = blend[k];
+    if (!a) continue;
+    for (let c = 0; c < channels; c++) {
+      const i = k * channels + c;
+      out[i] = Math.round(data[i] * (1 - a) + (sum[c] / seen) * a);
+    }
+  }
+  return out;
+}
+
 async function writeJpeg(data, width, height, channels, name) {
   const path = `${OUT}/${name}`;
   await sharp(data, { raw: { width, height, channels } }).jpeg(JPEG).toFile(path);
@@ -226,8 +281,11 @@ async function writeJpeg(data, width, height, channels, name) {
   return { file: name, width, height, bytes: size };
 }
 
-/** One map at every size, 8-bit sRGB or greyscale, re-framed; files are `${name}_${size}.jpg`. */
-async function colourMaps(file, left, name, { grey = false } = {}) {
+/**
+ * One map at every size, 8-bit sRGB or greyscale, re-framed; files are
+ * `${name}_${size}.jpg`. A surface map (`fill`) has its unseen gaps filled.
+ */
+async function colourMaps(file, left, name, { grey = false, fill = false } = {}) {
   const meta = await sharp(file, { limitInputPixels: false }).metadata();
   const channels = meta.channels >= 3 && !grey ? 3 : 1;
   const maps = {};
@@ -242,8 +300,9 @@ async function colourMaps(file, left, name, { grey = false } = {}) {
       .toColourspace(channels === 3 ? 'srgb' : 'b-w')
       .raw()
       .toBuffer({ resolveWithObject: true });
-    const framed = reframe(data, width, height, channels, left);
+    let framed = reframe(data, width, height, channels, left);
     imaged ??= imagedFraction(framed, width, height, channels);
+    if (fill && imaged < MOSTLY_SEEN) framed = fillUnseen(framed, width, height, channels);
     maps[key] = await writeJpeg(framed, width, height, channels, `${name}_${key}.jpg`);
   }
   return { maps, imaged, grey: channels === 1 };
@@ -316,7 +375,7 @@ async function main() {
   for (const body of BODIES) {
     console.log(body.name);
     const source = await resolveSource(body);
-    const { maps, imaged, grey } = await colourMaps(source.file, source.left, body.id);
+    const { maps, imaged, grey } = await colourMaps(source.file, source.left, body.id, { fill: true });
     const entry = {
       name: body.name,
       credit: body.credit,

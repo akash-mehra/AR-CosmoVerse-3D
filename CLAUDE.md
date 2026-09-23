@@ -509,11 +509,18 @@ boundary that reports on the boot screen rather than leaving a black page.
   after Pluto's own spin. Checked numerically: every sub-parent longitude 0°,
   Iapetus leading with 90°W (its dark side).
 - **Greyscale mosaics are tinted** to the average colour of the body's painted
-  surface (`averageColour`), so Pluto reads beige and Callisto brown; the
-  brightness detail is all real. Where a mosaic is black — what no spacecraft
-  saw: Pluto's and Charon's south, Triton's north — `fillUnseen` shows the
-  painted surface instead. It reads pixels, so a map on another host needs
-  CORS for that as well as for WebGL.
+  surface (`averageColour`, via `material.color`), so Pluto reads beige and
+  Callisto brown; the brightness detail is all real.
+- **What no spacecraft saw is filled in the pipeline** (`fillUnseen` in
+  `fetchTextures.mjs`): Pluto's and Charon's south and Triton's north are
+  black in the mosaics, and become the average colour of what was seen,
+  feathered over a few pixels that also swallow resampling's dark fringe;
+  cards say how much was seen and that the rest is left plain. Filling in the
+  browser, first with the painted surface, looked like a cartoon next to real
+  terrain (Triton's pink painting clashed with Voyager's colours), and at 4K
+  would stall the page for seconds. Titan's `veil` is 0.92: at 0.8 the ISS
+  mosaic's tile edges showed through a haze that in visible light hides
+  everything.
 - **Earth's city lights are an emissive map masked to the night side**
   (`nightSideOnly`, an `onBeforeCompile` on the surface material: view-space
   normal against the Sun at the origin). The Black Marble's faint blue land
@@ -572,7 +579,7 @@ boundary that reports on the boot screen rather than leaving a black page.
   rather than breaks. Rings, the sky sprites and the starfield are procedural
   (`textures.js`), and so is every moon and dwarf planet until its spacecraft
   map loads, painted with its known features; the painting stays as the
-  fallback, the tint and the fill for what was never seen. The credit stays
+  fallback and gives a greyscale map its tint. The credit stays
   visible on phones — the hint line is what goes.
 - **Anything that moves the camera around the map goes through `orbitBy`.**
   `GalaxyScene.orbitBy(dYaw, dPitch, scaleFactor)` swings the camera around the
