@@ -4,7 +4,7 @@ import * as THREE from 'three';
  * An atmosphere as a shell around its body, shaded by how much air each
  * sight line crosses: little over the middle of the disc, most just outside
  * the limb, none at the shell's edge. Density falls with height, so the glow
- * hugs the ground. The Sun is at the origin: the air is lit on the day side,
+ * hugs the ground. The Sun is at `uSun` (the origin in the Solar System): the air is lit on the day side,
  * takes its sunset colour near the terminator and is dark at night.
  */
 const VERTEX = `
@@ -23,6 +23,7 @@ uniform float uDensity;
 uniform float uVeil;
 uniform vec3 uColour;
 uniform vec3 uSunset;
+uniform vec3 uSun;
 varying vec3 vWorld;
 void main() {
   vec3 dir = normalize(vWorld - cameraPosition);
@@ -48,7 +49,7 @@ void main() {
   float depth = uDensity * (path / thick) * exp(-4.0 * lowest);
   float alpha = 1.0 - exp(-depth);
   if (b < uInner) alpha = max(alpha, uVeil);
-  float sun = dot(normalize(p - uCentre), normalize(-p));
+  float sun = dot(normalize(p - uCentre), normalize(uSun - p));
   vec3 colour = mix(uSunset, uColour, smoothstep(-0.1, 0.35, sun));
   gl_FragColor = vec4(colour, alpha * smoothstep(-0.25, 0.2, sun));
 }`;
@@ -75,7 +76,8 @@ export function createAtmosphere(radius, { pressureMb, extentKm, radiusKm, veil 
     uDensity: { value: DENSITY_PER_DECADE * Math.log10(pressureMb) },
     uVeil: { value: veil },
     uColour: { value: new THREE.Color(...colour) },
-    uSunset: { value: new THREE.Color(...sunset) }
+    uSunset: { value: new THREE.Color(...sunset) },
+    uSun: { value: new THREE.Vector3() }
   };
   const shell = new THREE.Mesh(
     new THREE.SphereGeometry(radius * (1 + thickness), 64, 32),

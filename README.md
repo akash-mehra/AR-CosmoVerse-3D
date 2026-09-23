@@ -61,6 +61,9 @@
 - 🔭 **One zoom, from the cosmic web to the planets**
   Press **Earth Origin** (or zoom into the Milky Way) and keep scrolling: through the Milky Way, down to a few light-years from the Sun, where the Solar System fades in around it, and on in to the planets — no cuts. Scroll out and it runs the other way. Keep the wheel turning and the zoom speeds up.
 
+- 🌍 **Down to Earth**
+  Tap Earth in the Solar System and keep zooming: it becomes the real, true-scale planet, and NASA satellite imagery sharpens all the way down to 250 km, where you can make out rivers and lakes (~500 m a pixel). City lights come on across the night side. Time holds while you are down there; zoom back out and the planets move again.
+
 - 📱 **Camera Passthrough AR**
   View the map through your device camera. The survey floats as a fixed object in the room — move the phone to look around it, pinch to change its apparent size, and tap **Recentre** to bring it back in front of you. **Fly to object** on a label's card re-centres the AR map on that object. Needs a secure context (HTTPS) and a motion sensor; without a gyroscope it falls back to drag-to-look over the live feed.
 
@@ -77,6 +80,7 @@
 | **SIMBAD (CDS Strasbourg)** | 🔴/🟢 **SIMBAD** push button in the header | ~40,000 **real** galaxies and quasars with measured redshifts, fetched live over the SIMBAD TAP `/sync` endpoint. Push again to switch back. |
 | **Nearby stars** (Hipparcos, SIMBAD, NASA Exoplanet Archive) | Fetched when you zoom within a few kpc of the Sun | 63,000 real stars within 1 kpc at their parallax distances, with names, designations and 3,800 planet hosts. Built by `npm run fetch:stars`; credits in `public/data/stars/CREDITS.md`. |
 | **Spacecraft maps of Earth, moons and dwarf planets** (NASA Earth Observatory, NASA SVS, NASA image library, the PDS) | Each loads as you fly close to its body, sharpens to 4K close up (2K on phones) and is released when you leave; built by `npm run fetch:textures`. On entering the Solar System you are offered the lot to keep on the device (30 MB, 7 MB on phones), so close-ups load at once | Earth (Blue Marble, city lights at night, clouds), the Moon with its relief, Phobos, the Galilean and major Saturnian moons, Triton, Pluto, Charon and Ceres, at ~2K (7.0 MB in all) and ~4K (23 MB). Cards say whose map it is, how much was actually seen, or that a surface is an artist's impression. Credits in `public/textures/bodies/CREDITS.md`. |
+| **NASA GIBS** (Global Imagery Browse Services) | Fetched tile by tile as you descend to Earth | Blue Marble Next Generation (MODIS, August 2004) in 512 px tiles from ~8 km down to ~490 m a pixel. We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS). |
 | **Custom CSV** | 📂 **Import CSV** button | Any table with `ra`, `dec`, `z` (or `redshift`) and an optional `class` column; SDSS CasJobs `#` comment lines are skipped. Up to 1,000,000 rows. |
 
 ### How the SIMBAD query works
@@ -214,6 +218,7 @@ Distributed under the MIT License.
 
 Planet texture maps in `public/textures/solar/` are by [Solar System Scope](https://www.solarsystemscope.com/textures/), based on NASA imagery, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — see `CREDITS.md` there.
 The Earth, moon and dwarf-planet maps in `public/textures/bodies/` are NASA spacecraft maps and mosaics in the public domain; each one's credit and source is in `CREDITS.md` there.
+Close-up Earth imagery is streamed from NASA GIBS, NASA data provided without restriction (CC0 under NASA's Earthdata data use guidance).
 
 ---
 

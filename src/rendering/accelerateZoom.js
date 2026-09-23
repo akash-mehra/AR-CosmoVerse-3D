@@ -2,7 +2,8 @@
  * Keeping the wheel turning speeds the zoom up, to 5× after about half a
  * second, so crossing ten orders of magnitude takes seconds of scrolling rather
  * than hundreds of notches. A single notch stays as fine as before; pinch is
- * already proportional to the fingers and is left alone.
+ * already proportional to the fingers and is left alone. A layer whose zoom
+ * depends on where the camera is sets `controls.zoomBase`, which this multiplies.
  */
 export function accelerateZoom(controls) {
   let last = 0;
@@ -12,6 +13,6 @@ export function accelerateZoom(controls) {
     const now = performance.now();
     streak = now - last < 150 ? Math.min(streak + 1, 24) : 0;
     last = now;
-    controls.zoomSpeed = 1 + streak / 6;
+    controls.zoomSpeed = (controls.zoomBase ?? 1) * (1 + streak / 6);
   }, { capture: true, passive: true });
 }
