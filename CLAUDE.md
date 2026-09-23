@@ -9,6 +9,7 @@ npm run dev          # http://localhost:5173
 npm run build
 npm run fetch:named  # rebuilds src/data/namedObjects.json from SIMBAD TAP
 npm run fetch:stars  # rebuilds public/data/stars/ from VizieR, SIMBAD, NASA
+npm run fetch:textures  # rebuilds public/textures/bodies/ from NASA and the PDS
 ```
 
 ## Where the project stands
@@ -46,6 +47,11 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 3 | Gesture control: two-handed sky turning, inertia, star trails | Done, untested on a real device |
 | 3a | Milky Way, name search, Solar System: moons, belts, dwarf planets, comet, real sky, cards, travel | Done; Solar System not yet reachable from AR |
 | 3b | Continuous scale: one zoom from the cosmic web down to the planets | Engine and nearby-stars layer done; a tour engine was built and pulled, to be revisited |
+| 3c | Map data pipeline: `fetch:textures`, two sizes per map, manifest, credits, `VITE_TEXTURE_BASE` | Done: 15 bodies, 2K set 5.8 MB, 4K set 19.0 MB (16 files each, JPEG) |
+| 3d | Planet detail: atmospheres, Earth clouds + night lights, the Moon's relief, photo maps for moons | Not started |
+| 3e | Sharper maps near bodies: 4K in on approach, out on leaving, phones capped | Not started |
+| 3f | Optional HD download: prompt with the real size, service worker cache, cache-first loading | Not started |
+| 3g | Landing on Earth: true-scale Earth layer, GIBS / Blue Marble to region level, a dormant Google 3D Tiles slot | Not started |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
 **Phase 3a notes.** The Milky Way was missing — only a 1 Mpc "Earth" sphere at
@@ -100,6 +106,59 @@ engine (tours as data, narrated chapters) was built and then pulled by the
 owner to be revisited later; it is in the history as #18.
 Undecided and the owner's call: true scale versus cinematic compression, guided
 versus free, phone-first versus desktop/VR, download budget, narration voice.
+
+**Phases 3c–3g plan** (agreed with the owner; each ends at its "done when").
+- **3c, map data pipeline.** Check USGS, NASA and GIBS through the proxy
+  first. `npm run fetch:textures` downloads the Moon (LRO colour map and
+  elevation), the Galilean and Saturnian moons, Pluto, Charon and Ceres, saves
+  each at ~2K (everyday) and ~4K (close-up), and writes a manifest of files and
+  sizes plus `CREDITS.md`. Record every map's licence and refuse a source
+  without one: several well-known moon maps are enthusiasts' mosaics under
+  their own terms. One setting, `VITE_TEXTURE_BASE`, says where maps live (the
+  Vercel deploy by default), so a later move to other hosting is one line; a
+  different origin must send CORS headers or WebGL cannot use the maps. Done
+  when the manifest exists and the real download size is known. **Result:**
+  15 bodies plus the Moon's normal map, 5.8 MB at 2K and 19.0 MB at 4K as
+  JPEG (`public/textures/bodies/manifest.json`); the originals are ~2 GB.
+  Nothing draws them yet — that is 3d.
+- **3d, planet detail.** An atmosphere shader tuned from NASA fact-sheet values
+  (Earth, Mars, Venus, Titan); Earth's cloud layer and night-side city lights
+  (Blue and Black Marble); the Moon's LRO map with relief as a normal map
+  derived at build time, not a displaced dense mesh; photo maps for Jupiter's
+  and Saturn's moons. Surfaces no spacecraft saw stay procedural and are
+  labelled as an artist's impression. Done when every body with real data uses
+  it and the rest say so.
+- **3e, sharper maps near bodies.** 4K maps load on approach and unload on
+  leaving; phones stay capped at what they can hold. A 4K RGBA map is ~90 MB
+  of GPU memory with mipmaps whatever its file size, so the file format
+  (JPEG/WebP versus KTX2, which needs a transcoder) sets whether that cap is
+  2K or 4K. Done when flying up to any body sharpens it without a memory spike
+  on a phone.
+- **3f, optional HD download.** On the way into the Milky Way, a prompt with
+  the real size (Download / Not now, remembered). A service worker saves the
+  maps to the Cache API with progress and cancel and asks for persistent
+  storage; loading checks the cache first, so a partial download still helps.
+  It caches map files only, never the page, or deploy previews go stale. Warn
+  on metered or slow connections where the browser says so, "best on Wi-Fi"
+  elsewhere. Whether maps are downloaded is judged from the cache, because iOS
+  clears a site's storage after ~7 days without a visit (home-screen apps
+  excepted): the user is simply asked again. Done when yes and no both give a
+  working trip and a cancelled download still speeds things up.
+- **3g, landing on Earth.** A true-scale Earth layer handed over from the
+  Solar System's Earth, joined by a band like the map and the Solar System;
+  NASA GIBS or Blue Marble imagery down to region level; an empty, inactive
+  slot for Google Photorealistic 3D Tiles until its pricing is checked. When it
+  is switched on, its key runs in the browser (restrict it to the site's
+  domains), Google's attribution must show, and its tiles must stay out of the
+  3f cache, which Google's terms forbid. Done when you can descend from orbit
+  to region level with the Google slot ready.
+- **Still unplaced:** reaching the Solar System from AR (open since 3a). 3g
+  adds another layer AR cannot reach, so decide whether it goes before 3g or
+  into Phase 4.
+- **Parked:** the spaceship (a chase camera suggested, not confirmed); the
+  tour; OpenStreetMap buildings, street view and a move to Cloudflare; the
+  open decisions (true or cinematic scale, guided or free, phone or
+  desktop/VR, narration voice).
 
 **Phase 3 notes.** Modelled on the Moon Knight sky-turning shot the owner
 supplied: open palms raised, the celestial sphere swinging past a stationary
@@ -193,6 +252,7 @@ src/
   controller/PlottingController.js  Progressive "plot one by one" engine
 public/textures/solar/       Planet maps (CC BY 4.0, see CREDITS.md there)
 public/data/stars/           Star field + named stars, from npm run fetch:stars
+public/textures/bodies/      Moon, moon and dwarf-planet maps at 2K/4K + manifest, from fetch:textures
 ```
 
 Two catalog builders feed the same GPU buffers: `generateSDSSCatalog` makes the
@@ -406,6 +466,33 @@ boundary that reports on the boot screen rather than leaving a black page.
   with distances agreeing to 25%, or they were drawn twice. The proxy
   occasionally drops a long TAP response, so each query retries once. Like
   `fetch:named`, it needs `NODE_USE_ENV_PROXY=1` here.
+- **`fetch:textures` re-frames every map to one convention**: east to the
+  right, 0° longitude at the centre, 180° at both edges. The archive's ISIS
+  labels number longitude east or west and centre on 0° or 180°; the script
+  reads `LongitudeDirection`, `CenterLongitude` and `UpperLeftCornerX` and
+  rolls each map. ISIS draws east to the right either way — checked by eye
+  against Mare Crisium, Pele and Loki, Herschel and Iapetus's ridge. A source
+  without a label (the Moon, Mimas) carries its left edge by hand. The ~2 GB
+  of originals are cached in `node_modules/.cache/fetch-textures` and checked
+  against the archive's MD5s; `sharp` (dev only) decodes them, with no pixel
+  limit, since Pluto's mosaic is 310 megapixels.
+- **Map licences rest on pages the script could read.** USGS's and JPL's
+  policy pages return 403 to scripts, the USGS product pages sit behind a
+  Cloudflare challenge (do not route around it) and its CKAN catalogue
+  answered 502. So the Moon's licence is the SVS help page ("all of our
+  content is in the public domain") and everything else is NASA's media
+  guidelines, which name texture maps and exclude only material marked with a
+  third-party holder; no PDS label marks one. Mimas is not in the PDS bucket
+  except as DLR's zip, so it comes from NASA's library (PIA17214). A source
+  with no licence is refused.
+- **`imaged` in the manifest is the share of the surface actually seen** (area
+  weighted, black fill excluded). Pluto is 77%: its south was in winter
+  darkness during the flyby. 3d labels the rest as an artist's impression.
+  Iapetus's mosaic has its brightness flattened, so its black-and-white
+  two-tone is mostly gone; 3d has to put the albedo back.
+- **`VITE_TEXTURE_BASE`** (build-time) says where maps are served from; unset,
+  it is this deploy's `textures/`. Another host must send CORS headers or
+  WebGL refuses the images. Only `SolarSystem.js` reads it.
 - **The Earth beacon becomes the Sun** inside ~1 kpc (it warms from blue), and
   no longer has a minimum size: at 80 pc it engulfed the camera near the Sun.
 - **The wormhole borrows the map's renderer, and the frame from it.** While

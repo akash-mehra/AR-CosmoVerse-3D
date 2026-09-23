@@ -12,7 +12,10 @@ import { BodyCard } from './BodyCard.js';
 import { BAND_OUTER, SOLAR_FOV } from './scale.js';
 import { accelerateZoom } from '../rendering/accelerateZoom.js';
 
-const TEXTURE_ROOT = `${import.meta.env.BASE_URL}textures/solar/`;
+// Where maps are served from: this deploy, unless VITE_TEXTURE_BASE names another
+// host, which must send CORS headers or WebGL cannot use them.
+const TEXTURE_BASE = (import.meta.env.VITE_TEXTURE_BASE || `${import.meta.env.BASE_URL}textures`).replace(/\/?$/, '/');
+const TEXTURE_ROOT = `${TEXTURE_BASE}solar/`;
 const TIME_SPEEDS = [0, 1, 10, 100];
 // Arrival from interstellar space: fast at first, easing in to the planets.
 const APPROACH_SECONDS = 6.5;

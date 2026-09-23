@@ -8,9 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "fetch:named": "node scripts/fetchNamedObjects.mjs",
-    "fetch:stars": "node scripts/fetchNearbyStars.mjs"
+    "fetch:stars": "node scripts/fetchNearbyStars.mjs",
+    "fetch:textures": "node scripts/fetchTextures.mjs"
   },
   "devDependencies": {
+    "sharp": "^0.35.4",
     "vite": "^8.2.0"
   },
   "dependencies": {
