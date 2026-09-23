@@ -131,8 +131,8 @@ function start() {
     const deltaTime = Math.min(deltaMs * 0.001, 0.1); // Clamp max delta to 100ms
 
     try {
-      if (portal.active) {
-        // Inside the Solar System: the galaxy map is paused, not drawn.
+      if (portal.ownsFrame) {
+        // Inside the Solar System or the wormhole: the galaxy map is paused, not drawn.
         portal.update(deltaTime);
       } else {
         // Advance one-by-one plotting engine

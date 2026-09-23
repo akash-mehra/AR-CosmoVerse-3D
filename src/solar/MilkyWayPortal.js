@@ -7,9 +7,10 @@ import { galacticBasis } from '../data/milkyWay.js';
 // the view.
 const ENTER_RANGE = 0.12;
 const FADE_MS = 450;
-// The dive from the galaxy view down through the disc to the Sun.
-const DIVE_MS = 2600;
+// The plunge toward the Sun while the wormhole's mouth opens over the map.
+const DIVE_MS = 1500;
 const RETURN_MS = 2400;
+const LY_PER_MPC = 3.2616e6;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -46,12 +47,18 @@ export class MilkyWayPortal {
     });
   }
 
-  /** Called every frame: draws the Solar System when inside, otherwise watches for the way in. */
+  /** True while the Solar System or the wormhole fills the screen, so the map need not be drawn. */
+  get ownsFrame() {
+    return this.active || !!this.wormhole?.covers;
+  }
+
+  /** Called every frame: draws the Solar System or the trip, otherwise watches for the way in. */
   update(dt) {
     if (this.active) {
       this.solar.update(dt);
       return;
     }
+    this.wormhole?.update(dt);
     const hidden = this.busy || !this.inRange();
     if (this.button.hidden !== hidden) this.button.hidden = hidden;
   }
@@ -81,27 +88,46 @@ export class MilkyWayPortal {
     return { position, target: new THREE.Vector3(0, 0, 0) };
   }
 
+  /** iOS only lets audio start inside a user gesture, so the click makes (or wakes) the context. */
+  unlockAudio() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null;
+    try {
+      this.audio ??= new AudioCtx();
+      this.audio.resume().catch(() => {});
+      return this.audio;
+    } catch {
+      return null;
+    }
+  }
+
   async enter() {
     if (this.active || this.busy) return;
     this.busy = true;
     this.button.hidden = true;
     this.namedLayer.clearSelection();
+    const audio = this.unlockAudio();
 
-    // Dive through the disc toward the Sun while the Solar System loads, so the
-    // wait is the journey rather than a blank screen.
-    this.returnView = { position: this.scene.camera.position.clone(), target: this.scene.controls.target.clone() };
+    // Plunge toward the Sun while the wormhole opens over the map; the Solar
+    // System loads during the trip, so the wait is the journey.
+    const { camera, controls } = this.scene;
+    this.returnView = { position: camera.position.clone(), target: controls.target.clone() };
+    const lightYears = camera.position.length() * LY_PER_MPC; // the Sun is the map's origin
     const { position, target } = this.sunView();
     this.scene.smoothFlyTo(position, target, DIVE_MS);
+    this.container.classList.add('warp-active');
     const loading = this.loadSolar();
+    loading.catch(() => {}); // awaited through the trip; this only stops an early failure reading as unhandled
 
     try {
-      await wait(DIVE_MS - FADE_MS);
-      await this.fade('Arriving at the Sun…');
-      await loading;
+      const { Wormhole } = await import('./Wormhole.js');
+      this.wormhole ??= new Wormhole(this.container, this.scene.renderer);
+      await this.wormhole.travel({ lightYears, audio, ready: loading });
     } catch (err) {
       console.error(err);
+      this.wormhole?.abort();
+      this.container.classList.remove('warp-active');
       notify(`Could not open the Solar System: ${err.message}`, { error: true });
-      this.veil.classList.remove('visible');
       this.scene.smoothFlyTo(this.returnView.position, this.returnView.target, RETURN_MS);
       this.busy = false;
       return;
@@ -109,12 +135,11 @@ export class MilkyWayPortal {
 
     // The galaxy map's own input and labels stand down while we are inside.
     this.scene.controls.enabled = false;
-    this.namedLayer.clearSelection();
     this.namedLayer.suspended = true;
-    this.container.classList.add('solar-active');
+    this.container.classList.replace('warp-active', 'solar-active');
     this.solar.enter();
     this.active = true;
-    this.veil.classList.remove('visible');
+    this.wormhole.reveal();
     this.busy = false;
   }
 
@@ -125,6 +150,12 @@ export class MilkyWayPortal {
       this.solar.onExit = () => this.exit();
     }
     await this.solar.load();
+    // Compile its shaders during the trip rather than in its first frame, in
+    // the background where the browser can (asking three to try where it
+    // cannot only logs a warning).
+    const { renderer } = this.scene;
+    if (renderer.extensions.has('KHR_parallel_shader_compile')) await renderer.compileAsync(this.solar.scene, this.solar.camera);
+    else renderer.compile(this.solar.scene, this.solar.camera);
   }
 
   async exit() {

@@ -643,7 +643,7 @@ export class HUD {
     // A single click is left to the named-object layer, which selects labels.
     window.addEventListener('dblclick', e => {
       if (e.target !== this.scene.renderer.domElement) return;
-      if (this.container.matches('.ar-active, .solar-active')) return;
+      if (this.container.matches('.ar-active, .solar-active, .warp-active')) return;
       e.preventDefault();
       const direction = e.shiftKey || e.altKey ? 'out' : 'in';
       this.scene.zoomAtScreenPoint(e.clientX, e.clientY, direction);
@@ -667,9 +667,9 @@ export class HUD {
       if (e.target.closest?.('input, textarea, select, dialog')) return;
       // A focused button handles its own Space; toggling here as well undid it.
       if (e.key === ' ' && e.target.closest?.('button')) return;
-      // The HUD is hidden in AR and in the Solar System, so its shortcuts would
+      // The HUD is hidden in AR, the wormhole and the Solar System, so its shortcuts would
       // act on nothing visible.
-      if (this.container.matches('.ar-active, .solar-active')) return;
+      if (this.container.matches('.ar-active, .solar-active, .warp-active')) return;
 
       const action = actions[e.key.toLowerCase()];
       if (!action) return;

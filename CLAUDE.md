@@ -56,10 +56,14 @@ planets at today's positions on their real periods, inclinations and tilts,
 real texture maps and Saturn's rings.
 
 It is now dense enough to feel like travelling through a galaxy:
-- **Getting there is a journey.** "Enter" dives the map's camera down through
-  the galactic disc to the Sun (loading the Solar System meanwhile), then the
-  Solar System opens with an approach from outside the Oort Cloud, stars
-  streaking past, easing in to the planets. Leaving rises back out.
+- **Getting there is a journey.** "Enter" plunges the map's camera toward the
+  Sun as a wormhole opens over it, then flies the tunnel at hyperspeed from a
+  ship's bridge: warnings every 0.8 s, alarms, a velocity readout, the real
+  distance to the Sun counting down, hull integrity falling, synthesised engine
+  and alarm sound, and a spoken callout on entry and exit. It exits in a
+  white-out into the Solar System's approach from outside the Oort Cloud, with
+  stars streaking past as it eases in to the planets. The Solar System loads
+  during the trip. Leaving rises back out.
 - **Contents.** 21 major moons (log-compressed orbits, in their planet's
   equatorial plane, tidally locked), Ceres, Pluto + Charon, Haumea (stretched),
   Makemake, Eris and Halley's Comet on real eccentric orbits solved from
@@ -157,6 +161,7 @@ src/
   data/milkyWay.js           Galactic frame constants and the Milky Way entry
   rendering/MilkyWayModel.js Procedural Milky Way point model at the centre
   solar/MilkyWayPortal.js    Easter-egg button, the dive, galaxy <-> Solar System
+  solar/Wormhole.js          The trip: tunnel shader, ship's bridge, synthesised sound
   solar/SolarSystem.js       Lazy-loaded scene: bodies, labels, cards, tour, time
   solar/data.js              Every body's elements, sizes and card facts; scaling
   solar/kepler.js            Kepler's equation for the eccentric orbits
@@ -310,6 +315,27 @@ boundary that reports on the boot screen rather than leaving a black page.
   the shader (`mod`), so there is always some to fly through. Neither shows
   motion by itself; the warp does: `updateWarp` measures the camera's real
   speed and heading each frame and the star/dust shaders streak along it.
+- **The wormhole borrows the map's renderer, and the frame from it.** While
+  its mouth opens it is drawn over the map just rendered (`autoClear` off);
+  once it covers the screen `portal.ownsFrame` is true and the frame loop stops
+  drawing the map. `.warp-active` hides the HUD and labels and silences the
+  shortcuts for the trip, like `.solar-active` after it.
+- **The trip's audio context is made in the click** (`portal.unlockAudio`): iOS
+  only lets audio start inside a user gesture, and by the time the lazy
+  `Wormhole.js` has loaded that gesture is over. Every sound is synthesised with
+  Web Audio (the output peaks at ~0.7, measured); the callouts use
+  `speechSynthesis`. The mute button's choice is kept in `localStorage`
+  (`cosmoverse.sound`), and the context is suspended between trips.
+- **Keep the trip photosensitive-safe.** The banner blinks at 1 Hz, the red
+  vignette pulses more slowly, and there is exactly one white-out: well inside
+  three flashes a second. Reduced motion stops the pulsing and slows the tunnel
+  to a drift.
+- **The white-out must not fade before the Solar System's first frame.** CSS
+  opacity animates off the main thread, so a stall there (shader compilation)
+  uncovered the last tunnel frame. `reveal` waits two animation frames, and
+  `loadSolar` compiles the Solar System's shaders during the trip —
+  `compileAsync` only where `KHR_parallel_shader_compile` exists, because three
+  logs a warning when asked without it.
 - **The Milky Way model has its own point shader** capped at a few pixels and
   fading within ~2 kpc of the camera. With `PointsMaterial` the dive into the
   disc filled the screen with sprites hundreds of pixels wide.
@@ -495,7 +521,11 @@ skeleton without MediaPipe.
 
 To reach the Solar System, search "Milky Way" (it flies to 0.077 Mpc, inside
 the portal's 0.12 range) and click `.portal-btn`; `portal.active` flips after
-the dive and the load. A tap on the canvas skips the arrival. Drive it through
+the wormhole trip. `portal.wormhole` exposes `phase` (`open`, `cruise`, `exit`),
+`t`, `covers` and `loaded`, and a tap once loaded skips to the exit. Its clock
+runs on the frame loop's clamped `dt`, so under SwiftShader a 5.7 s trip takes
+~12 s of wall time. To measure the sound, connect an `AnalyserNode` to
+`portal.wormhole.sound.out`. A tap on the canvas skips the arrival. Drive it through
 `portal.solar`: `select(byName.get('Jupiter'))` flies there and opens its card,
 `setSpeed(100)` changes time, and setting `years` jumps the clock (years since
 entry — set it so `START_YEAR + years` is 2061.5 to catch Halley at
