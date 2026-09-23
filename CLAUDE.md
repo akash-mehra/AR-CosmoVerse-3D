@@ -127,6 +127,10 @@ FOV is not matched to the device camera's FOV, which weakens the illusion, and
   around, and orientation aims the camera. Sky-locking (mapping alt/az to
   RA/Dec so the map matches the real sky) was considered and deferred — it
   needs geolocation plus local sidereal time and only works outdoors.
+- **No chat session links in the repo.** Commits, PR descriptions and comments
+  never carry a `claude.ai/code/session_…` URL or a `Claude-Session:` trailer:
+  the owner does not want their chats reachable from GitHub. `main`'s history
+  was rewritten once to strip them; do not add them back.
 - Phone testing happens via **deploy previews**, so there is deliberately no
   HTTPS dev-server setup in this repo. `getUserMedia` needs a secure context,
   so AR will not work from a plain `http://` LAN address.
