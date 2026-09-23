@@ -31,7 +31,8 @@ export class BodyCard {
     const { info } = body;
     this.title.textContent = body.name;
     this.type.textContent = info.type;
-    this.rows.replaceChildren(...info.rows.map(([label, value]) => {
+    const rows = body.surfaceNote ? [...info.rows, ['Surface', body.surfaceNote]] : info.rows;
+    this.rows.replaceChildren(...rows.map(([label, value]) => {
       const row = document.createElement('div');
       const dt = document.createElement('dt');
       const dd = document.createElement('dd');

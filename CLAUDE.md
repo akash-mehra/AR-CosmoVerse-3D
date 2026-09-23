@@ -48,7 +48,7 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 3a | Milky Way, name search, Solar System: moons, belts, dwarf planets, comet, real sky, cards, travel | Done; Solar System not yet reachable from AR |
 | 3b | Continuous scale: one zoom from the cosmic web down to the planets | Engine and nearby-stars layer done; a tour engine was built and pulled, to be revisited |
 | 3c | Map data pipeline: `fetch:textures`, two sizes per map, manifest, credits, `VITE_TEXTURE_BASE` | Done: 15 bodies, 2K set 5.8 MB, 4K set 19.0 MB (16 files each, JPEG) |
-| 3d | Planet detail: atmospheres, Earth clouds + night lights, the Moon's relief, photo maps for moons | Not started |
+| 3d | Planet detail: atmospheres, Earth clouds + night lights, the Moon's relief, photo maps for moons | Done: 18 bodies on spacecraft maps, 4 atmospheres, every card says where its surface comes from |
 | 3e | Sharper maps near bodies: 4K in on approach, out on leaving, phones capped | Not started |
 | 3f | Optional HD download: prompt with the real size, service worker cache, cache-first loading | Not started |
 | 3g | Landing on Earth: true-scale Earth layer, GIBS / Blue Marble to region level, a dormant Google 3D Tiles slot | Not started |
@@ -89,9 +89,8 @@ It is now dense enough to feel like travelling through a galaxy:
   flies Sun → Kuiper Belt stopping at each world; time runs at pause, 1×, 10× or
   100× (1× = one Earth year every 30 s) from today's date.
 
-Still to do: make the Solar System reachable from AR, and photographic maps for
-the moons and dwarf planets (only the Sun and planets have them; Wikimedia kept
-rate-limiting the Moon's).
+Still to do: make the Solar System reachable from AR. (Photographic maps for
+the moons and dwarf planets came with 3c/3d, from NASA and the PDS.)
 
 **Phase 3b notes.** The first step toward an "ultimate universe tour" (the
 owner's goal): scales join up instead of cutting between scenes. Aim at the Sun
@@ -127,7 +126,13 @@ versus free, phone-first versus desktop/VR, download budget, narration voice.
   derived at build time, not a displaced dense mesh; photo maps for Jupiter's
   and Saturn's moons. Surfaces no spacecraft saw stay procedural and are
   labelled as an artist's impression. Done when every body with real data uses
-  it and the rest say so.
+  it and the rest say so. **Result:** Earth (Blue Marble, Black Marble city
+  lights on the night side, NASA clouds), the Moon (LRO colour + LOLA relief),
+  Phobos, the four Galilean moons, seven Saturnian moons, Triton, Pluto,
+  Charon and Ceres wear spacecraft maps; atmospheres on Earth, Mars, Venus and
+  Titan. Deimos, the five Uranian moons and Halley have no global map in the
+  archive, and Haumea, Makemake and Eris were never visited: their cards say
+  "artist's impression".
 - **3e, sharper maps near bodies.** 4K maps load on approach and unload on
   leaving; phones stay capped at what they can hold. A 4K RGBA map is ~90 MB
   of GPU memory with mipmaps whatever its file size, so the file format
@@ -242,6 +247,7 @@ src/
   solar/MilkyWayPortal.js    Galaxy <-> Solar System: the zoom bridge, the wormhole button
   solar/scale.js             Where the Solar System sits in the map: units, axes, band
   solar/Wormhole.js          The trip: tunnel shader, ship's bridge, synthesised sound
+  solar/atmosphere.js        Atmosphere shell: air crossed per sight line, lit by the Sun
   solar/SolarSystem.js       Lazy-loaded scene: bodies, labels, cards, tour, time
   solar/data.js              Every body's elements, sizes and card facts; scaling
   solar/kepler.js            Kepler's equation for the eccentric orbits
@@ -490,6 +496,47 @@ boundary that reports on the boot screen rather than leaving a black page.
   darkness during the flyby. 3d labels the rest as an artist's impression.
   Iapetus's mosaic has its brightness flattened, so its black-and-white
   two-tone is mostly gone; 3d has to put the albedo back.
+- **Spacecraft maps load on approach** (`loadNearMaps`). All 21 2K maps at
+  once would be ~235 MB of GPU memory, too much for a phone. A body keeps its
+  painted surface until it spans `PHOTO_PX` (12 px) on screen, then
+  `applyMaps` swaps in its maps and keeps them; 3e adds unloading and 4K. The
+  manifest is fetched in `build`; without it every body stays painted.
+- **A map's 0° longitude faces the parent**, as moon maps define it. A
+  sphere puts the map's centre on +X and the planet lies along −X, so moons
+  turn half a turn (`mesh.rotation.y = π`); an icosahedron's UVs (the lumpy
+  Phobos) already start half a turn round, so it does not. Pluto keeps its own
+  0° (the sub-Charon meridian) on Charon: Charon's tick sets Pluto's rotation
+  after Pluto's own spin. Checked numerically: every sub-parent longitude 0°,
+  Iapetus leading with 90°W (its dark side).
+- **Greyscale mosaics are tinted** to the average colour of the body's painted
+  surface (`averageColour`, via `material.color`), so Pluto reads beige and
+  Callisto brown; the brightness detail is all real.
+- **What no spacecraft saw is filled in the pipeline** (`fillUnseen` in
+  `fetchTextures.mjs`): Pluto's and Charon's south and Triton's north are
+  black in the mosaics, and become the average colour of what was seen,
+  feathered over a few pixels that also swallow resampling's dark fringe;
+  cards say how much was seen and that the rest is left plain. Filling in the
+  browser, first with the painted surface, looked like a cartoon next to real
+  terrain (Triton's pink painting clashed with Voyager's colours), and at 4K
+  would stall the page for seconds. Titan's `veil` is 0.96: at 0.8 and even 0.92 the ISS
+  mosaic's tile edges showed through a haze that in visible light hides
+  everything.
+- **Earth's city lights are an emissive map masked to the night side**
+  (`nightSideOnly`, an `onBeforeCompile` on the surface material: view-space
+  normal against the Sun at the origin). The Black Marble's faint blue land
+  all but vanishes once decoded to linear light, so it needs no masking.
+- **Atmospheres** (`atmosphere.js`) are a shell shaded by how much air each
+  sight line crosses, lit by the Sun, with a sunset colour at the terminator
+  (Mars's is blue). Values come from NASA fact sheets in `data.js`: haze
+  density per decade of surface pressure, the air reaching ~7 scale heights
+  (Titan's 600 km is NASA's figure). A limb is at least 3% of the radius:
+  Earth's, to scale, is under a pixel from a normal view. Titan's `veil`
+  hides the ground as its haze does. The shell is front-faced, so it vanishes
+  if the camera goes inside it. `half` is a reserved word in GLSL ES.
+- **Every card with a surface says where it comes from** (`surfaceNote`): the
+  map's credit and, if under 98% was seen, how much; otherwise "artist's
+  impression", with "no spacecraft has visited it" for bodies flagged
+  `unvisited`.
 - **`VITE_TEXTURE_BASE`** (build-time) says where maps are served from; unset,
   it is this deploy's `textures/`. Another host must send CORS headers or
   WebGL refuses the images. Only `SolarSystem.js` reads it.
@@ -529,9 +576,11 @@ boundary that reports on the boot screen rather than leaving a black page.
   route around it). Commons' API rate-limits this sandbox's IP; direct
   `upload.wikimedia.org` paths are derived from the MD5 of the file name. Any
   map that is missing falls back to a procedural surface, so a 404 degrades
-  rather than breaks. Moons, dwarf planets, rings, the sky sprites and the
-  starfield are procedural (`textures.js`) and painted with each body's known
-  features. The credit stays visible on phones — the hint line is what goes.
+  rather than breaks. Rings, the sky sprites and the starfield are procedural
+  (`textures.js`), and so is every moon and dwarf planet until its spacecraft
+  map loads, painted with its known features; the painting stays as the
+  fallback and gives a greyscale map its tint. The credit stays
+  visible on phones — the hint line is what goes.
 - **Anything that moves the camera around the map goes through `orbitBy`.**
   `GalaxyScene.orbitBy(dYaw, dPitch, scaleFactor)` swings the camera around the
   orbit target; `ARMode.orbitBy` has the same signature but swings the anchor
@@ -703,6 +752,13 @@ For the stars, wait for `namedLayer.extraObjects.length > 0` (named stars load
 ~1.5 s after start) and `scene.stars.ready` (the field loads within 5 kpc of
 the Sun). `namedLayer.objects.find((o) => o.label === 'Proxima Centauri')`,
 then `select` and `flyTo` it, exercises search, cards and the star floor.
+
+To check a body's maps, select it (`portal.solar.select(byName.get(name))`),
+wait for `follow.t >= 1`, then set the camera relative to the Sun at the
+origin (the Sun behind the camera for a full disc, side-on for the
+terminator) and copy the body's position into `follow.last`. Wait for the body
+to leave `pendingMaps`. A map longitude for a direction `d` in the body's local
+frame is `atan2(d.z, −d.x) / 2π` (+0.5 on an icosahedron), centred on 0°.
 
 To test the continuous zoom, click `[data-landmark="earth"]` (aims at the Sun)
 and move whichever camera owns the view along its line of sight:
