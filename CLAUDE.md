@@ -45,7 +45,7 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 2 | AR shell: camera passthrough + device-orientation look-around | Done |
 | 3 | Gesture control: two-handed sky turning, inertia, star trails | Done, untested on a real device |
 | 3a | Milky Way, name search, Solar System: moons, belts, dwarf planets, comet, real sky, cards, travel | Done; Solar System not yet reachable from AR |
-| 3b | Continuous scale: one zoom from the cosmic web down to the planets | Engine, nearby-stars layer and tour engine done |
+| 3b | Continuous scale: one zoom from the cosmic web down to the planets | Engine and nearby-stars layer done; a tour engine was built and pulled, to be revisited |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
 **Phase 3a notes.** The Milky Way was missing — only a 1 Mpc "Earth" sphere at
@@ -95,12 +95,9 @@ takes the controls, and on in to the planets; scrolling out runs the same way
 back. No button, no cut. It is built as layers so more can slot in. The gap
 between ~3 pc and ~1 kpc is now filled with 63,000 real stars (Hipparcos,
 with SIMBAD names and NASA's planet hosts), each as bright as it looks from
-the camera; the Solar System's own sky is built from the same stars. On top of
-it, a tour engine plays tours written as data: 🎬 Tour in the header flies
-"From Earth to the edge of the universe" in 15 narrated chapters — Earth, Moon,
-Sun, Jupiter, Saturn, Pluto, out through the Oort Cloud, Alpha Centauri, Sirius,
-the stellar neighbourhood, Betelgeuse, the Milky Way, Andromeda, the cosmic web,
-quasar dawn — crossing every layer the way a scroll does.
+the camera; the Solar System's own sky is built from the same stars. A tour
+engine (tours as data, narrated chapters) was built and then pulled by the
+owner to be revisited later; it is in the history as #18.
 Undecided and the owner's call: true scale versus cinematic compression, guided
 versus free, phone-first versus desktop/VR, download budget, narration voice.
 
@@ -182,9 +179,6 @@ src/
   rendering/LayerBlend.js    Draws a layer off-screen and fades it over the canvas
   rendering/NearbyStars.js   Real stars within 1 kpc, brightness from the camera
   data/nearbyStars.js        Loads the star field and the named stars
-  tour/tours.js              Tours as data: chapters, narration, where each goes
-  tour/TourEngine.js         Lazy-loaded: plays a tour over the existing seams
-  ui/sound.js                The one mute switch (wormhole sound, tour voice)
   rendering/accelerateZoom.js Wheel zoom that speeds up while you keep scrolling
   solar/MilkyWayPortal.js    Galaxy <-> Solar System: the zoom bridge, the wormhole button
   solar/scale.js             Where the Solar System sits in the map: units, axes, band
@@ -298,7 +292,11 @@ boundary that reports on the boot screen rather than leaving a black page.
   to see was clipped, so near now follows the distance to the target
   (`updateLocalScale`, 0.02× of it, capped at 0.002). Aimed at the Sun there is
   no 0.03 floor: the portal sets `minDistance` and `zoomToCursor` every frame
-  (see the scale gotchas), so set them nowhere else. The coordinate rings do not write depth, because
+  (see the scale gotchas), so set them nowhere else. Anything framed on the
+  Milky Way (search, its label) aims at the galactic centre, 8 kpc from the
+  Sun, so a zoom there used to stop dead at the 0.03 floor; reaching that floor
+  anywhere in the disc now glides the target onto the Sun (`homeIn`) and the
+  zoom carries on down. Satellites (LMC, SMC) keep the floor. The coordinate rings do not write depth, because
   depth is coarse that far out. `ARMode.MIN_DISTANCE` matches it for the same
   reason: at its old value of 5 Mpc, entering AR near Andromeda snapped the map
   back out.
@@ -408,31 +406,6 @@ boundary that reports on the boot screen rather than leaving a black page.
   with distances agreeing to 25%, or they were drawn twice. The proxy
   occasionally drops a long TAP response, so each query retries once. Like
   `fetch:named`, it needs `NODE_USE_ENV_PROXY=1` here.
-- **A tour only drives seams that already exist** (`TourEngine.go`): a Solar
-  System body is `solar.focusOn`, an object or landmark is a log-scale map
-  flight (`smoothFlyTo`, or `hud.flyToLandmark` with a duration), and a
-  distance from the Sun is a scripted zoom. The zoom moves whichever camera has
-  the view along its line through the Sun, in `tour.update`, which the frame
-  loop calls before anything draws. It is deliberately not a `cameraFlight`:
-  the portal refuses to hand over during flights, so a zoom crosses the band
-  and changes layers exactly as a scroll does. Going into the Solar System
-  from the map aims at the Sun from 5 pc and zooms in; coming out re-focuses
-  the Sun first, so the way out runs through it.
-- **End a tour's distance chapters outside the band** (≥ 3.2 pc). Inside it,
-  the lens and roll are blended; the next flight to anything but the Sun
-  drops the blend and the view snaps. "Leaving the Sun" stops at 3.6 pc.
-- **Every step of a tour is cancellable.** A run holds a token; pause, ⏮/⏭,
-  End and any touch or wheel on the view bump it, which rejects every pending
-  wait, drops the scripted zoom and the map flight where they are, and stops
-  the voice. Touching the view pauses rather than fighting the user; ▶ flies to
-  the current chapter again. While a tour plays, `.tour-active` hides the HUD,
-  the portal button and the Solar System's top bar (never its credit), HUD
-  shortcuts stand down, and Esc ends the tour rather than leaving the Solar
-  System. Space on a focused tour button is left to the button.
-- **Narration** is the panel's text (`aria-live`) plus `speechSynthesis`,
-  muted by the same switch as the wormhole (`ui/sound.js`). A chapter holds
-  for its reading time (2.6 words a second) and until the voice ends, capped,
-  because some engines never fire `end`.
 - **The Earth beacon becomes the Sun** inside ~1 kpc (it warms from blue), and
   no longer has a minimum size: at 80 pc it engulfed the camera near the Sun.
 - **The wormhole borrows the map's renderer, and the frame from it.** While
@@ -638,13 +611,6 @@ and `uTrailDir` directly and screenshot. The hand preview draws from whatever
 you hand it: `arMode.handPreview.draw({ video, hands: [{points, role}], engaged,
 mirrored })` with 21 synthetic normalised points per hand renders the full
 skeleton without MediaPipe.
-
-For the tour, click `#btn-tour` and mute it (`tour.setVoice(false)`). To check
-each chapter's arrival, replace `tour.runChapter` with one that awaits
-`this.go(chapter.go, token)` and then waits on a promise the test resolves —
-there is where to read the state and take the screenshot. Do not return
-`tour.play(i)` from `page.evaluate`: it returns the whole tour's promise, and
-the evaluate waits for the tour to finish.
 
 For the stars, wait for `namedLayer.extraObjects.length > 0` (named stars load
 ~1.5 s after start) and `scene.stars.ready` (the field loads within 5 kpc of

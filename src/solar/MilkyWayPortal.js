@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { notify } from '../ui/notify.js';
-import { galacticBasis } from '../data/milkyWay.js';
+import { galacticBasis, DISC_RADIUS_MPC } from '../data/milkyWay.js';
 import { LayerBlend } from '../rendering/LayerBlend.js';
 import { MPC_PER_UNIT, BAND_INNER, BAND_OUTER, SOLAR_FOV, bandPosition, solarFromMap, mapFromSolar } from './scale.js';
 import { STAR_REACH_MPC } from '../data/nearbyStars.js';
@@ -23,6 +23,8 @@ const STAR_MIN_MPC = 1e-9;
 const PREFETCH_MPC = 0.001;
 // Where "Back to the universe" rises to after zooming in: the Milky Way from 20 kpc.
 const RISE_MPC = 0.02;
+// Zoomed to the floor on the Milky Way, the view glides onto the Sun this fast.
+const HOME_MS = 1400;
 // Either side of the band's middle, so a zoom held there does not hand the
 // view back and forth.
 const HAND_TO_MAP = 0.55;
@@ -94,9 +96,7 @@ export class MilkyWayPortal {
     container.append(this.button, this.veil);
 
     window.addEventListener('keydown', (e) => {
-      // During a tour Esc ends the tour, not the visit.
-      if (e.key === 'Escape' && this.active && !this.container.classList.contains('tour-active')
-        && !e.target.closest?.('input, textarea, dialog')) this.exit();
+      if (e.key === 'Escape' && this.active && !e.target.closest?.('input, textarea, dialog')) this.exit();
     });
   }
 
@@ -197,6 +197,7 @@ export class MilkyWayPortal {
     if (aimed) controls.minDistance = (this.solarReady ? BAND_INNER : BAND_OUTER) * MPC_PER_UNIT;
     else if (controls.target.length() < STAR_REACH_MPC) controls.minDistance = STAR_MIN_MPC;
     else controls.minDistance = Math.min(MAP_MIN_MPC, camera.position.distanceTo(controls.target));
+    if (!aimed && !this.busy && !this.scene.cameraFlight && this.atMilkyWayFloor()) this.homeIn();
     if (!aimed || this.busy) return false;
 
     if (toSun < PREFETCH_MPC && !this.loading) {
@@ -212,6 +213,24 @@ export class MilkyWayPortal {
     // A flight passing through (rising out after Back) is not a zoom in.
     if (this.band < HAND_TO_SOLAR && !this.scene.cameraFlight) this.handToSolar();
     return true;
+  }
+
+  /**
+   * Zoomed in on the Milky Way as far as the map goes (its floor, not a closer
+   * distance kept after panning), somewhere in the disc but not among the stars.
+   */
+  atMilkyWayFloor() {
+    const { camera, controls, milkyWay } = this.scene;
+    return controls.target.distanceTo(milkyWay.centre) < DISC_RADIUS_MPC
+      && controls.target.length() >= STAR_REACH_MPC
+      && Math.abs(camera.position.distanceTo(controls.target) - MAP_MIN_MPC) < MAP_MIN_MPC * 1e-3;
+  }
+
+  /** Aims the zoom at the Sun, so scrolling on runs down through the stars to the planets. */
+  homeIn() {
+    const { camera } = this.scene;
+    const toSun = Math.min(RISE_MPC, camera.position.length());
+    this.scene.smoothFlyTo(camera.position.clone().setLength(toSun), new THREE.Vector3(), HOME_MS);
   }
 
   handToSolar() {

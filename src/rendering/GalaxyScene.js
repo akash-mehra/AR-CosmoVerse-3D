@@ -376,7 +376,7 @@ export class GalaxyScene {
     }
   }
 
-  flyToLandmark(landmark, immediate = false, duration = 1800) {
+  flyToLandmark(landmark, immediate = false) {
     let targetPos = new THREE.Vector3(0, 0, 0);
     let camPos = new THREE.Vector3(200, 350, 1100);
 
@@ -415,7 +415,7 @@ export class GalaxyScene {
       startTarget: this.controls.target.clone(),
       endTarget: targetPos,
       startTime: performance.now(),
-      duration
+      duration: 1800 // 1.8 seconds smooth cinematic flight
     };
   }
 

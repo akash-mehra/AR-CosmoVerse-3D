@@ -58,11 +58,8 @@
 - ⭐ **The stars around the Sun**
   63,000 real stars within 1 kpc, each at its measured distance and drawn as bright as it looks *from wherever you are* — near the Sun it is the night sky; fly to Alpha Centauri and the Sun is a bright star behind you. Search any named star (`Sirius`, `Tau Ceti`, `Alpha Centauri`, `TRAPPIST-1`) to fly there; cards give its brightness, distance, how long its light took, and its known planets.
 
-- 🎬 **A guided tour**
-  **Tour** in the header flies *From Earth to the edge of the universe*: fifteen narrated chapters from Earth, the Moon and the planets, out through the Oort Cloud to Alpha Centauri, Sirius and Betelgeuse, then the Milky Way, Andromeda, the cosmic web and the most distant quasars — one continuous journey, read aloud if your browser can speak. Touch the view to take over; ▶ picks it up again; ←/→ skip chapters, Space pauses, Esc ends it.
-
 - 🔭 **One zoom, from the cosmic web to the planets**
-  Press **Earth Origin** and keep scrolling: through the Milky Way, down to a few light-years from the Sun, where the Solar System fades in around it, and on in to the planets — no cuts. Scroll out and it runs the other way. Keep the wheel turning and the zoom speeds up.
+  Press **Earth Origin** (or zoom into the Milky Way) and keep scrolling: through the Milky Way, down to a few light-years from the Sun, where the Solar System fades in around it, and on in to the planets — no cuts. Scroll out and it runs the other way. Keep the wheel turning and the zoom speeds up.
 
 - 📱 **Camera Passthrough AR**
   View the map through your device camera. The survey floats as a fixed object in the room — move the phone to look around it, pinch to change its apparent size, and tap **Recentre** to bring it back in front of you. **Fly to object** on a label's card re-centres the AR map on that object. Needs a secure context (HTTPS) and a motion sensor; without a gyroscope it falls back to drag-to-look over the live feed.
