@@ -83,9 +83,11 @@ const circle = (radius, count = 256) => Array.from({ length: count }, (_, k) => 
  * renderer and canvas; MilkyWayPortal decides which of the two is drawn.
  */
 export class SolarSystem {
-  constructor(renderer, container) {
+  constructor(renderer, container, starField = null) {
     this.renderer = renderer;
     this.container = container;
+    // The nearby stars, for a real sky; null falls back to a random one.
+    this.starField = starField;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x010104);
     this.camera = new THREE.PerspectiveCamera(SOLAR_FOV, 1, 0.02, 8000);
@@ -214,7 +216,7 @@ export class SolarSystem {
     ]);
     const pixelRatio = this.renderer.getPixelRatio();
 
-    this.sky = createSky(pixelRatio);
+    this.sky = createSky(pixelRatio, this.starField);
     this.scene.add(this.sky.group);
     for (const item of this.sky.items) this.addBody({ ...item, followable: false });
     this.dust = createDust(pixelRatio);

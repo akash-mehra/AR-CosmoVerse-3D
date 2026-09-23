@@ -8,6 +8,7 @@ npm install
 npm run dev          # http://localhost:5173
 npm run build
 npm run fetch:named  # rebuilds src/data/namedObjects.json from SIMBAD TAP
+npm run fetch:stars  # rebuilds public/data/stars/ from VizieR, SIMBAD, NASA
 ```
 
 ## Where the project stands
@@ -44,7 +45,7 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 2 | AR shell: camera passthrough + device-orientation look-around | Done |
 | 3 | Gesture control: two-handed sky turning, inertia, star trails | Done, untested on a real device |
 | 3a | Milky Way, name search, Solar System: moons, belts, dwarf planets, comet, real sky, cards, travel | Done; Solar System not yet reachable from AR |
-| 3b | Continuous scale: one zoom from the cosmic web down to the planets | Engine done (map ↔ Solar System); next: a nearby-stars layer, then a tour engine |
+| 3b | Continuous scale: one zoom from the cosmic web down to the planets | Engine and nearby-stars layer done; next: a tour engine |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
 **Phase 3a notes.** The Milky Way was missing — only a 1 Mpc "Earth" sphere at
@@ -91,9 +92,11 @@ owner's goal): scales join up instead of cutting between scenes. Aim at the Sun
 (the Earth Origin preset does) and keep scrolling: the map runs down through the
 Milky Way to a few parsecs, where the Solar System fades in around the Sun and
 takes the controls, and on in to the planets; scrolling out runs the same way
-back. No button, no cut. It is built as layers so more can slot in; the gap it
-leaves open is between ~3 pc and ~1 kpc, where a nearby-stars layer (HYG/Gaia,
-exoplanet systems) belongs next, then a tour engine whose chapters are data.
+back. No button, no cut. It is built as layers so more can slot in. The gap
+between ~3 pc and ~1 kpc is now filled with 63,000 real stars (Hipparcos,
+with SIMBAD names and NASA's planet hosts), each as bright as it looks from
+the camera; the Solar System's own sky is built from the same stars. Next: a
+tour engine whose chapters are data.
 Undecided and the owner's call: true scale versus cinematic compression, guided
 versus free, phone-first versus desktop/VR, download budget, narration voice.
 
@@ -173,6 +176,8 @@ src/
   data/milkyWay.js           Galactic frame constants and the Milky Way entry
   rendering/MilkyWayModel.js Procedural Milky Way point model at the centre
   rendering/LayerBlend.js    Draws a layer off-screen and fades it over the canvas
+  rendering/NearbyStars.js   Real stars within 1 kpc, brightness from the camera
+  data/nearbyStars.js        Loads the star field and the named stars
   rendering/accelerateZoom.js Wheel zoom that speeds up while you keep scrolling
   solar/MilkyWayPortal.js    Galaxy <-> Solar System: the zoom bridge, the wormhole button
   solar/scale.js             Where the Solar System sits in the map: units, axes, band
@@ -186,6 +191,7 @@ src/
   solar/BodyCard.js          The docked detail card
   controller/PlottingController.js  Progressive "plot one by one" engine
 public/textures/solar/       Planet maps (CC BY 4.0, see CREDITS.md there)
+public/data/stars/           Star field + named stars, from npm run fetch:stars
 ```
 
 Two catalog builders feed the same GPU buffers: `generateSDSSCatalog` makes the
@@ -361,6 +367,35 @@ boundary that reports on the boot screen rather than leaving a black page.
   ×0.95 by default: 450 notches from Earth Origin to the planets.
   `accelerateZoom` raises OrbitControls' `zoomSpeed` to 5× while notches come
   less than 150 ms apart; a single notch is unchanged, pinch is untouched.
+- **A star's brightness is worked out from the camera, per vertex**
+  (`NearbyStars.js`): apparent magnitude from its absolute magnitude and its
+  distance to the camera, so the sky is right from anywhere. The limiting
+  magnitude is 7 near the Sun and deepens by 5 per tenfold distance, or the
+  neighbourhood vanished when seen from outside it. Past ~4 magnitudes above
+  the limit a star swells into glare — flown up to, it read as a dot. The
+  layer fades out 1.5–4 kpc from the Sun, where the Milky Way model carries on.
+- **The stars live in the map, in Mpc.** No new frame: the Sun is the origin,
+  so float32 holds 1 kpc to ~20 AU. Near a star (the target within
+  `STAR_REACH_MPC` of the Sun) the camera may close to ~200 AU; elsewhere the
+  old limits stand. Among the stars `uAmongStars` shrinks galaxy sprites to
+  smudges, which at their usual 22 px buried the stars.
+- **Named stars ride along with every dataset** (`NamedObjectLayer.addObjects`)
+  in a `star` tier shown within 2 kpc of the Sun. Their weight is recomputed
+  each frame from how bright they look from the camera, so the labels follow
+  the sky; only stars brighter than ~2.5 there (deeper further out) get one.
+  Cards swap the redshift and lookback rows for brightness and light-travel
+  time. Names are chosen from SIMBAD's aliases (components, "… Star" nicknames
+  and catalogue-like names dropped); a few come out in a variant spelling
+  (Rigel Kentaurus, Celeno, Albereo) because no service offers the IAU list,
+  and every alias stays searchable.
+- **The Solar System's sky is the real one.** `createSky` places the ~9,000
+  stars brightest from the Sun at their true directions, so the band's
+  crossfade shows one sky; `loadSolar` fetches the star field for it, and a
+  failure there falls back to random stars rather than failing the trip.
+- **`fetch:stars` quirks.** VizieR's `RArad`/`DErad` in I/311 are degrees.
+  SIMBAD's Bayer/Flamsteed ids are padded (`*  61 Cyg A`) and superscripted
+  (`* alf02 Cen`). The proxy occasionally drops a long TAP response, so each
+  query retries once. Like `fetch:named`, it needs `NODE_USE_ENV_PROXY=1` here.
 - **The Earth beacon becomes the Sun** inside ~1 kpc (it warms from blue), and
   no longer has a minimum size: at 80 pc it engulfed the camera near the Sun.
 - **The wormhole borrows the map's renderer, and the frame from it.** While
@@ -566,6 +601,11 @@ and `uTrailDir` directly and screenshot. The hand preview draws from whatever
 you hand it: `arMode.handPreview.draw({ video, hands: [{points, role}], engaged,
 mirrored })` with 21 synthetic normalised points per hand renders the full
 skeleton without MediaPipe.
+
+For the stars, wait for `namedLayer.extraObjects.length > 0` (named stars load
+~1.5 s after start) and `scene.stars.ready` (the field loads within 5 kpc of
+the Sun). `namedLayer.objects.find((o) => o.label === 'Proxima Centauri')`,
+then `select` and `flyTo` it, exercises search, cards and the star floor.
 
 To test the continuous zoom, click `[data-landmark="earth"]` (aims at the Sun)
 and move whichever camera owns the view along its line of sight:

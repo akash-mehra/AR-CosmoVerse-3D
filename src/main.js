@@ -7,6 +7,7 @@ import { ARMode } from './ar/ARMode.js';
 import { SkyGestures } from './ar/SkyGestures.js';
 import { generateSDSSCatalog } from './data/sdssGenerator.js';
 import { notify } from './ui/notify.js';
+import { loadNamedStars } from './data/nearbyStars.js';
 import { MilkyWayPortal } from './solar/MilkyWayPortal.js';
 
 const bootScreen = document.getElementById('boot-screen');
@@ -42,6 +43,7 @@ function start() {
 
   // 3b. Labels & detail card for real catalogued objects
   const namedLayer = new NamedObjectLayer(appContainer, scene);
+  scene.stars.onError = (err) => notify(`Could not load the nearby stars: ${err.message}`, { error: true });
 
   // Search hands back a named object: select it, widen nothing else, fly there.
   hud.searchObjects = () => namedLayer.objects;
@@ -162,6 +164,13 @@ function start() {
   }
 
   requestAnimationFrame(animate);
+  // Named stars (labels, cards, search) once the map is up; the star field
+  // itself is fetched when the camera nears the Sun. Search simply lacks them
+  // if this fails, so it is logged rather than announced.
+  setTimeout(() => {
+    loadNamedStars().then((stars) => namedLayer.addObjects(stars), (err) => console.warn('Named stars unavailable:', err));
+  }, 1500);
+
   if (bootScreen) {
     bootScreen.classList.add('done');
     bootScreen.addEventListener('transitionend', () => { bootScreen.hidden = true; }, { once: true });

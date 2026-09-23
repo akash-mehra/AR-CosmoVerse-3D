@@ -16,6 +16,7 @@ uniform float uHighlightActive;
 uniform float uSpawnWindow; // Plot progress over which a new point flashes
 uniform float uPixelRatio;  // Point sizes are CSS pixels; gl_PointSize is device pixels
 uniform float uTrailAmount; // 0 = still sky, 1 = full star streaks
+uniform float uAmongStars;  // 1 among the nearby stars, where galaxies are distant smudges
 
 varying float vColorParam;
 varying float vAlpha;
@@ -55,7 +56,7 @@ void main() {
   // Scales point size inversely with camera distance to prevent blowout when zooming out
   // and dimness when zooming in.
   float baseSize = uPointSize * (aIsQSO > 0.5 ? 1.45 : 1.15);
-  float sizeDistFactor = clamp(450.0 / max(dist, 8.0), 0.45, 5.0);
+  float sizeDistFactor = clamp(450.0 / max(dist, 8.0), 0.45, mix(5.0, 1.4, uAmongStars));
   float ptSize = baseSize * sizeDistFactor;
 
   // 5. Birth flash. The window is sized on the CPU from the speed, so a flash
