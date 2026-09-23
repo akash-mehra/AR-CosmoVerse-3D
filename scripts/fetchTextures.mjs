@@ -49,7 +49,7 @@ const LICENCES = {
   }
 };
 
-const GALILEO = 'NASA/JPL (Galileo SSI, Voyager); mosaic by USGS Astrogeology, via the PDS';
+const GALILEO = 'NASA/JPL (Galileo SSI, Voyager); mosaic via USGS Astrogeology and the PDS';
 const CASSINI = 'NASA/JPL-Caltech/Space Science Institute (Cassini ISS)';
 const NEW_HORIZONS = 'NASA/JHUAPL/SwRI (New Horizons LORRI, MVIC); mosaic via USGS Astrogeology and the PDS';
 
