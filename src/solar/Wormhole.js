@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { soundMuted, setSoundMuted } from '../ui/sound.js';
 
 /*
  * The trip from the galaxy map to the Sun: a wormhole at hyperspeed, seen from
@@ -15,6 +14,7 @@ const WARN_EVERY_S = 0.8;
 const ALARM_EVERY_S = 1.7;
 const LY_PER_S_AT_C = 1 / 31557600;
 const AU_PER_LY = 63241;
+const SOUND_KEY = 'cosmoverse.sound';
 const VOLUME = 0.8;
 
 const WARNINGS = [
@@ -122,6 +122,14 @@ function formatSpeed(lyPerSecond) {
 function formatDistance(ly) {
   if (ly >= 1) return `${Math.round(ly).toLocaleString('en-US')} ly`;
   return `${Math.round(ly * AU_PER_LY).toLocaleString('en-US')} AU`;
+}
+
+function readMuted() {
+  try {
+    return localStorage.getItem(SOUND_KEY) === 'off';
+  } catch {
+    return false;
+  }
 }
 
 function noiseBuffer(ctx, brown) {
@@ -253,7 +261,7 @@ export class Wormhole {
   constructor(container, renderer) {
     this.renderer = renderer;
     this.phase = null;
-    this.muted = soundMuted();
+    this.muted = readMuted();
     this._size = new THREE.Vector2();
 
     this.uniforms = {
@@ -509,7 +517,6 @@ export class Wormhole {
   }
 
   speak(text) {
-    this.muted = soundMuted(); // the tour may have changed it since
     if (this.muted || !window.speechSynthesis) return;
     const line = new SpeechSynthesisUtterance(text);
     line.rate = 1.05;
@@ -520,7 +527,11 @@ export class Wormhole {
 
   setMuted(muted) {
     this.muted = muted;
-    setSoundMuted(muted);
+    try {
+      localStorage.setItem(SOUND_KEY, muted ? 'off' : 'on');
+    } catch {
+      // Storage blocked: the choice lasts for this visit only.
+    }
     this.sound?.setMuted(muted);
     if (muted) window.speechSynthesis?.cancel();
     this.soundBtn.textContent = muted ? '🔇' : '🔊';

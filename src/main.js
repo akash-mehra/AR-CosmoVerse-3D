@@ -55,20 +55,6 @@ function start() {
   // 3b'. Easter egg: zoom into the Milky Way and a way into the Solar System opens.
   const portal = new MilkyWayPortal(appContainer, scene, namedLayer);
 
-  // 3b''. The guided tour, loaded on first use.
-  let tour = null;
-  hud.onStartTour = async () => {
-    try {
-      const { TourEngine } = await import('./tour/TourEngine.js');
-      tour ??= new TourEngine({ container: appContainer, scene, portal, namedLayer, hud, controller });
-      window.__SDSS_APP__.tour = tour;
-      tour.start();
-    } catch (err) {
-      console.error(err);
-      notify(`Could not start the tour: ${err.message}`, { error: true });
-    }
-  };
-
   // 3c. Camera passthrough AR shell
   const arMode = new ARMode(appContainer, scene);
   hud.onEnterAR = () => arMode.enter();
@@ -147,9 +133,6 @@ function start() {
     const deltaTime = Math.min(deltaMs * 0.001, 0.1); // Clamp max delta to 100ms
 
     try {
-      // A tour's scripted zoom moves the camera before anything draws.
-      tour?.update(deltaTime);
-
       if (portal.ownsFrame) {
         // Inside the Solar System or the wormhole: the galaxy map is paused, not drawn.
         portal.update(deltaTime);
