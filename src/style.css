@@ -2060,3 +2060,46 @@ canvas {
 .solar-credit a {
   color: inherit;
 }
+
+/* The HD map offer: bottom left, clear of the hint line and the card. */
+.map-offer {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + 30px);
+  width: 290px;
+  padding: 12px 14px;
+  font-size: 0.78rem;
+  pointer-events: auto;
+  /* .glass-card animates every property. */
+  transition: none;
+}
+
+.map-offer-text {
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
+
+.map-offer-progress {
+  width: 100%;
+  margin-bottom: 8px;
+  accent-color: var(--accent-gold);
+}
+
+.map-offer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  /* The card's bottom sheet slot, above the credit; the card wins while open. */
+  .map-offer {
+    left: 12px;
+    right: 12px;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    width: auto;
+  }
+
+  .solar-card:not([hidden]) ~ .map-offer {
+    display: none;
+  }
+}

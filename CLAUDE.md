@@ -50,7 +50,7 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 3c | Map data pipeline: `fetch:textures`, two sizes per map, manifest, credits, `VITE_TEXTURE_BASE` | Done: 15 bodies, 2K set 5.8 MB, 4K set 19.0 MB (16 files each, JPEG) |
 | 3d | Planet detail: atmospheres, Earth clouds + night lights, the Moon's relief, photo maps for moons | Done: 18 bodies on spacecraft maps, 4 atmospheres, every card says where its surface comes from |
 | 3e | Sharper maps near bodies: 4K in on approach, out on leaving, phones capped | Done: painted → 2K → 4K by size on screen, released on leaving; phones stop at 2K |
-| 3f | Optional HD download: prompt with the real size, service worker cache, cache-first loading | Not started |
+| 3f | Optional HD download: prompt with the real size, map cache, cache-first loading | Done: offered on entering the Solar System, 30.3 MB on desktop (2K + 4K), 7.0 MB on phones; no service worker |
 | 3g | Landing on Earth: true-scale Earth layer, GIBS / Blue Marble to region level, a dormant Google 3D Tiles slot | Not started |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
@@ -152,7 +152,13 @@ versus free, phone-first versus desktop/VR, download budget, narration voice.
   elsewhere. Whether maps are downloaded is judged from the cache, because iOS
   clears a site's storage after ~7 days without a visit (home-screen apps
   excepted): the user is simply asked again. Done when yes and no both give a
-  working trip and a cancelled download still speeds things up.
+  working trip and a cancelled download still speeds things up. **Result:**
+  the offer appears on entering the Solar System (by the wormhole or the
+  zoom) with the size still to fetch: 2K + 4K on desktop (30.3 MB), 2K on
+  phones (7.0 MB), matching `BodyMaps.top`. No service worker: the page reads
+  the Cache API itself, so only map files can ever be cached. Verified: Not
+  now is remembered, a cancelled download keeps its files and they load with
+  no network request, and the offer comes back with only what is left.
 - **3g, landing on Earth.** A true-scale Earth layer handed over from the
   Solar System's Earth, joined by a band like the map and the Solar System;
   NASA GIBS or Blue Marble imagery down to region level; an empty, inactive
@@ -253,6 +259,7 @@ src/
   solar/Wormhole.js          The trip: tunnel shader, ship's bridge, synthesised sound
   solar/atmosphere.js        Atmosphere shell: air crossed per sight line, lit by the Sun
   solar/bodyMaps.js          Spacecraft maps by size on screen: painted, 2K, 4K; released on leaving
+  solar/hdMaps.js            The optional HD download: the offer, the map cache, cache-first lookup
   solar/SolarSystem.js       Lazy-loaded scene: bodies, labels, cards, tour, time
   solar/data.js              Every body's elements, sizes and card facts; scaling
   solar/kepler.js            Kepler's equation for the eccentric orbits
@@ -516,6 +523,16 @@ boundary that reports on the boot screen rather than leaving a black page.
   `maxTextureSize` is under 4096. A 4K JPEG map is ~90 MB of GPU memory with
   mipmaps whatever its file size, and Earth has three. KTX2 would let phones
   have 4K at a quarter of that, at the cost of a transcoder; not done.
+- **The HD download has no service worker** (`hdMaps.js`). The page reads
+  the Cache API itself: `BodyMaps.fetchSet` asks `savedUrl` first and loads a
+  hit as a blob URL, revoked once loaded. A worker would add a lifecycle and
+  a way to serve a stale page for nothing. A saved file whose size no longer
+  matches the manifest is dropped and fetched again, so regenerated maps are
+  never shown stale. The offer counts what is missing from the cache, never a
+  stored flag; only Not now is stored (`cosmoverse.hdMaps` in localStorage).
+  The Cache API needs a secure context, so a plain-http LAN address never sees
+  the offer. The offer takes the phone card's slot and hides while a card is
+  open.
 - **A map's 0° longitude faces the parent**, as moon maps define it. A
   sphere puts the map's centre on +X and the planet lies along −X, so moons
   turn half a turn (`mesh.rotation.y = π`); an icosahedron's UVs (the lumpy
@@ -781,6 +798,13 @@ then `portal.handToSolar()`. Place the camera a number of radii from a body
 `body.maps.want`, `.shown` and `.sets` and `renderer.info.memory.textures`;
 wait for `shown === want` before reading. Playwright's `isMobile` + `hasTouch`
 gives a coarse pointer, so `solar.maps.top` is `'2k'` there.
+
+The HD offer is `portal.solar.offer` (`el`, `text`, `buttons.yes/no/cancel`,
+`progress`, `files`); `offer()` shows it again. A localhost download finishes
+in about a second, so to test Cancel, throttle with CDP
+(`Network.emulateNetworkConditions`, ~2 MB/s). Read the cache with
+`caches.open('cosmoverse-maps')` and check its `keys()` hold nothing but map
+files. Record `page.on('request')` to confirm a saved map is not fetched again.
 
 To test the continuous zoom, click `[data-landmark="earth"]` (aims at the Sun)
 and move whichever camera owns the view along its line of sight:

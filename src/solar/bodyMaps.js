@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { savedUrl } from './hdMaps.js';
 
 /*
  * Spacecraft maps for Earth, the moons and dwarf planets, at the detail each
@@ -149,7 +150,15 @@ export class BodyMaps {
 
   async fetchSet(entry, level) {
     const load = async (map, colour = true) => {
-      const texture = await this.loader.loadAsync(this.root + map[level].file);
+      const { file, bytes } = map[level];
+      // The HD download's copy first, if it has this file.
+      const saved = await savedUrl(this.root + file, bytes);
+      let texture;
+      try {
+        texture = await this.loader.loadAsync(saved ?? this.root + file);
+      } finally {
+        if (saved) URL.revokeObjectURL(saved);
+      }
       // Colour maps are sRGB; normals and the cloud alpha are data.
       texture.colorSpace = colour ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       texture.anisotropy = 4;
