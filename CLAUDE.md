@@ -518,7 +518,7 @@ boundary that reports on the boot screen rather than leaving a black page.
   cards say how much was seen and that the rest is left plain. Filling in the
   browser, first with the painted surface, looked like a cartoon next to real
   terrain (Triton's pink painting clashed with Voyager's colours), and at 4K
-  would stall the page for seconds. Titan's `veil` is 0.92: at 0.8 the ISS
+  would stall the page for seconds. Titan's `veil` is 0.96: at 0.8 and even 0.92 the ISS
   mosaic's tile edges showed through a haze that in visible light hides
   everything.
 - **Earth's city lights are an emissive map masked to the night side**
