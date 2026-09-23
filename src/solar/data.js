@@ -6,7 +6,7 @@
 
 export const DEG = Math.PI / 180;
 // Obliquity of the ecliptic, for turning RA/Dec into this scene's frame.
-export const OBLIQUITY = 23.4393 * DEG;
+export { OBLIQUITY } from './scale.js';
 const EARTH_RADIUS_KM = 6371;
 
 // One Earth year of simulated time per this many seconds at 1×.

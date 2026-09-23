@@ -4,10 +4,16 @@ import galaxyVert from './shaders/galaxy.vert?raw';
 import galaxyFrag from './shaders/galaxy.frag?raw';
 import { BOOTES_VOID_CENTER, SLOAN_GREAT_WALL } from '../data/sdssGenerator.js';
 import { MilkyWayModel } from './MilkyWayModel.js';
+import { accelerateZoom } from './accelerateZoom.js';
 
 // Birth flash length: long enough to see one galaxy land in slow motion, short
 // enough not to smear the whole frontier at full speed.
 const flashSeconds = (speed) => Math.min(0.9, 0.15 + 8 / speed);
+
+const BEACON_BLUE = new THREE.Color(0x0088ff);
+const HALO_BLUE = new THREE.Color(0x00dfff);
+const SUN_WHITE = new THREE.Color(0xfff3dc);
+const SUN_GLOW = new THREE.Color(0xffc46b);
 
 export class GalaxyScene {
   constructor(container) {
@@ -31,8 +37,8 @@ export class GalaxyScene {
 
     // 2. Scene & Camera
     this.scene = new THREE.Scene();
-    // Near has to sit well inside controls.minDistance, or the Milky Way and
-    // the Local Group are clipped away exactly when you fly in to look at them.
+    // Near follows the camera in updateLocalScale, from here at survey scale
+    // down to a few parsecs from the Sun.
     this.camera = new THREE.PerspectiveCamera(50, this.width / this.height, 0.002, 30000.0);
     this.camera.position.set(200, 500, 1350);
 
@@ -46,6 +52,7 @@ export class GalaxyScene {
     // Scrolling heads for what is under the pointer, like every map.
     this.controls.zoomToCursor = true;
     this.controls.target.set(0, 0, 0);
+    accelerateZoom(this.controls);
 
     // 4. Uniforms
     this.uniforms = {
@@ -72,6 +79,7 @@ export class GalaxyScene {
 
     // 6. Camera flight & Cinematic Auto-Orbit state
     this.cameraFlight = null;
+    this._flightTurn = new THREE.Quaternion();
     this.autoOrbit = false;
     this.orbitSpeedRadPerSec = 0.06; // Mesmerizing slow rotation for screen recording
 
@@ -90,6 +98,7 @@ export class GalaxyScene {
     const earthMat = new THREE.MeshBasicMaterial({
       color: 0x0088ff
     });
+    this.earthMaterial = earthMat;
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
 
     // Atmosphere halo
@@ -101,6 +110,7 @@ export class GalaxyScene {
       side: THREE.BackSide
     });
     const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+    this.haloMaterial = haloMat;
 
     earthGroup.add(earthMesh);
     earthGroup.add(haloMesh);
@@ -263,7 +273,9 @@ export class GalaxyScene {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, this.camera);
     if (raycaster.params.Points) {
-      raycaster.params.Points.threshold = 25.0;
+      // In proportion to the view, or up close every click lands on a galaxy
+      // megaparsecs away.
+      raycaster.params.Points.threshold = this.camera.position.distanceTo(this.controls.target) * 0.017;
     }
 
     let targetPoint = new THREE.Vector3();
@@ -298,7 +310,7 @@ export class GalaxyScene {
 
     let newDist = currentDist;
     if (direction === 'in') {
-      newDist = Math.max(15.0, currentDist * 0.35); // Zoom 3x closer smoothly
+      newDist = Math.max(this.controls.minDistance, currentDist * 0.35); // Zoom 3x closer smoothly
     } else {
       newDist = Math.min(18000.0, currentDist * 2.5); // Zoom 2.5x further back smoothly
     }
@@ -320,6 +332,31 @@ export class GalaxyScene {
       startTime: performance.now(),
       duration
     };
+  }
+
+  /**
+   * Flights ease the target across, swing the view direction round and change
+   * distance on a log scale, so a flight from the survey to a few parsecs from
+   * the Sun spends its time evenly across the scales instead of arriving in the
+   * last frame.
+   */
+  stepFlight(flight, t) {
+    if (!flight.path) {
+      const from = flight.startCam.clone().sub(flight.startTarget);
+      const to = flight.endCam.clone().sub(flight.endTarget);
+      flight.path = {
+        fromDir: from.clone().normalize(),
+        turn: new THREE.Quaternion().setFromUnitVectors(from.clone().normalize(), to.clone().normalize()),
+        logFrom: Math.log(Math.max(from.length(), 1e-12)),
+        logTo: Math.log(Math.max(to.length(), 1e-12))
+      };
+    }
+    const { fromDir, turn, logFrom, logTo } = flight.path;
+    this.controls.target.lerpVectors(flight.startTarget, flight.endTarget, t);
+    const turned = this._flightTurn.identity().slerp(turn, t);
+    this.camera.position.copy(fromDir).applyQuaternion(turned)
+      .multiplyScalar(Math.exp(THREE.MathUtils.lerp(logFrom, logTo, t)))
+      .add(this.controls.target);
   }
 
   highlightLandmark(name) {
@@ -384,12 +421,10 @@ export class GalaxyScene {
     const aspect = this.width / this.height;
     this.camera.aspect = aspect;
 
-    // Adapt camera FOV in portrait orientation so the full 3D SDSS wedge remains visible
-    if (aspect < 1.0) {
-      this.camera.fov = Math.min(75, 50 / aspect);
-    } else {
-      this.camera.fov = 50;
-    }
+    // Adapt camera FOV in portrait orientation so the full 3D SDSS wedge remains visible.
+    // Kept as `fov` too: approaching the Solar System borrows the lens for a while.
+    this.fov = aspect < 1.0 ? Math.min(75, 50 / aspect) : 50;
+    this.camera.fov = this.fov;
 
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height);
@@ -406,11 +441,23 @@ export class GalaxyScene {
   /**
    * Scale-dependent furniture. The Earth beacon is a 1 Mpc sphere, a dot at
    * survey scale but big enough to swallow the whole Milky Way (0.03 Mpc) up
-   * close, so it shrinks with the camera's distance to stay a marker.
+   * close, so it shrinks with the camera's distance to stay a marker; within a
+   * kiloparsec it warms into the star it marks, the Sun. The near plane follows
+   * the distance to the target, so the camera can close in on anything without
+   * clipping it.
    */
   updateLocalScale() {
     const toEarth = this.camera.position.length();
-    this.earthMarker.scale.setScalar(THREE.MathUtils.clamp(toEarth * 0.004, 0.00008, 1));
+    this.earthMarker.scale.setScalar(Math.min(toEarth * 0.004, 1));
+    const sunward = THREE.MathUtils.smoothstep(-Math.log10(Math.max(toEarth, 1e-12)), 3, 5);
+    this.earthMaterial.color.lerpColors(BEACON_BLUE, SUN_WHITE, sunward);
+    this.haloMaterial.color.lerpColors(HALO_BLUE, SUN_GLOW, sunward);
+
+    const near = THREE.MathUtils.clamp(this.camera.position.distanceTo(this.controls.target) * 0.02, 1e-10, 0.002);
+    if (Math.abs(near - this.camera.near) > near * 0.05) {
+      this.camera.near = near;
+      this.camera.updateProjectionMatrix();
+    }
     this.milkyWay.update(this.camera, this.height * this.pixelRatio * 0.5, this.pixelRatio);
   }
 
@@ -443,8 +490,7 @@ export class GalaxyScene {
       let t = Math.min(1.0, elapsed / this.cameraFlight.duration);
       t = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-      this.camera.position.lerpVectors(this.cameraFlight.startCam, this.cameraFlight.endCam, t);
-      this.controls.target.lerpVectors(this.cameraFlight.startTarget, this.cameraFlight.endTarget, t);
+      this.stepFlight(this.cameraFlight, t);
 
       if (t >= 1.0) {
         this.cameraFlight = null;
@@ -452,6 +498,8 @@ export class GalaxyScene {
     }
 
     this.controls.update();
+    // Anything that must adjust the camera after the controls, before the frame.
+    this.afterControls?.();
     this.updateLocalScale();
     this.renderer.render(this.scene, this.camera);
   }

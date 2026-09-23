@@ -9,6 +9,8 @@ import { orbitalPosition, orbitSamples } from './kepler.js';
 import { createSky, createDust, setWarp, SKY_RADIUS } from './sky.js';
 import { createBelts } from './belts.js';
 import { BodyCard } from './BodyCard.js';
+import { BAND_OUTER, SOLAR_FOV } from './scale.js';
+import { accelerateZoom } from '../rendering/accelerateZoom.js';
 
 const TEXTURE_ROOT = `${import.meta.env.BASE_URL}textures/solar/`;
 const TIME_SPEEDS = [0, 1, 10, 100];
@@ -86,13 +88,15 @@ export class SolarSystem {
     this.container = container;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x010104);
-    this.camera = new THREE.PerspectiveCamera(45, 1, 0.02, 8000);
+    this.camera = new THREE.PerspectiveCamera(SOLAR_FOV, 1, 0.02, 8000);
     this.controls = new OrbitControls(this.camera, renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.06;
     this.controls.minDistance = 0.3;
-    this.controls.maxDistance = 1400;
+    // Out past the Oort Cloud to where the galaxy map takes over.
+    this.controls.maxDistance = BAND_OUTER;
     this.controls.enabled = false;
+    accelerateZoom(this.controls);
 
     this.bodies = [];
     this.byName = new Map();
@@ -570,20 +574,27 @@ export class SolarSystem {
   }
 
   enter() {
-    this.active = true;
-    this.root.hidden = false;
-    this.follow = null;
-    this.stopTour();
     // Arrive from outside the Oort Cloud and fall inward to the planets. A
     // portrait screen is narrow, so the final view there stands further back.
+    this.takeOver(APPROACH_FROM, new THREE.Vector3());
     this.renderer.getSize(this.size);
     const back = this.size.x < this.size.y ? 1.9 : 1;
     this.approach = { t: 0, from: APPROACH_FROM.clone(), to: new THREE.Vector3(0, 70 * back, 150 * back) };
-    this.camera.position.copy(APPROACH_FROM);
-    this.controls.target.set(0, 0, 0);
     this.camera.lookAt(0, 0, 0);
-    this.lastCam.copy(this.camera.position);
     this.controls.enabled = false;
+  }
+
+  /** Takes over the view as it is, as when a zoom from the map reaches it. */
+  takeOver(position, target) {
+    this.active = true;
+    this.root.hidden = false;
+    this.follow = null;
+    this.approach = null;
+    this.stopTour();
+    this.camera.position.copy(position);
+    this.controls.target.copy(target);
+    this.lastCam.copy(position);
+    this.controls.enabled = true;
   }
 
   exit() {
@@ -598,10 +609,22 @@ export class SolarSystem {
   }
 
   update(dt) {
+    this.step(dt);
+    this.draw();
+  }
+
+  /**
+   * Advances time and the camera. `driven` is for when the map owns the view
+   * and places this camera itself: nothing here may move it then.
+   */
+  step(dt, driven = false) {
     this.renderer.getSize(this.size);
     const aspect = this.size.x / Math.max(this.size.y, 1);
-    if (Math.abs(this.camera.aspect - aspect) > 1e-4) {
+    // Far enough to keep the Oort Cloud in view from where the map takes over.
+    const far = Math.max(8000, this.camera.position.length() + 3000);
+    if (Math.abs(this.camera.aspect - aspect) > 1e-4 || far !== this.camera.far) {
       this.camera.aspect = aspect;
+      this.camera.far = far;
       this.camera.updateProjectionMatrix();
     }
 
@@ -614,20 +637,24 @@ export class SolarSystem {
     this.belts.material.uniforms.uYears.value = this.years;
     this.belts.material.uniforms.uPixelRatio.value = this.renderer.getPixelRatio();
 
-    if (this.approach) {
+    if (this.approach && !driven) {
       this.updateApproach(dt);
-    } else {
+    } else if (!driven) {
       this.updateFollow(dt);
       this.updateTour(dt);
       this.controls.update();
     }
-
     this.updateWarp(dt);
+    this.stepDate = dt;
+  }
+
+  /** Renders into whatever target is bound, and lays out the labels. */
+  draw() {
     this.sky.group.position.copy(this.camera.position);
     this.dust.material.uniforms.uCam.value.copy(this.camera.position);
     this.renderer.render(this.scene, this.camera);
     this.layoutLabels();
-    this.updateDate(dt);
+    this.updateDate(this.stepDate);
   }
 
   updateApproach(dt) {
