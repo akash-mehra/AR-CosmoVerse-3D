@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { DEG, OBLIQUITY, SKY_OBJECTS } from './data.js';
+import { DEG, SKY_OBJECTS } from './data.js';
+import { solarFromMap } from './scale.js';
 import { galacticBasis } from '../data/milkyWay.js';
 import { mulberry32, glowTexture, nebulaTexture, galaxyTexture, cloudTexture, clusterTexture } from './textures.js';
 
@@ -104,9 +105,7 @@ export function setWarp(material, warp, focus, sign, pixelRatio) {
  * increasing anticlockwise seen from above — the frame the planets use.
  */
 function sceneFromEquatorial(x, y, z, out) {
-  const ye = y * Math.cos(OBLIQUITY) + z * Math.sin(OBLIQUITY);
-  const ze = -y * Math.sin(OBLIQUITY) + z * Math.cos(OBLIQUITY);
-  return out.set(x, ze, -ye);
+  return solarFromMap(out.set(x, y, z), out);
 }
 
 export function skyDirection(raDeg, decDeg, out = new THREE.Vector3()) {

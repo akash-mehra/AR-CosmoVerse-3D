@@ -55,6 +55,9 @@
 - 🌌 **The Milky Way — and what is inside it**
   Our own galaxy sits where it belongs: a barred spiral in the true galactic plane, its centre 8.2 kpc from the Sun at the map's origin. Zoom in close and see what happens — a wormhole ride takes you to a whole Solar System, with moons, belts, dwarf planets, a comet, the real night sky around it, a detail card for everything, and a grand tour.
 
+- 🔭 **One zoom, from the cosmic web to the planets**
+  Press **Earth Origin** and keep scrolling: through the Milky Way, down to a few light-years from the Sun, where the Solar System fades in around it, and on in to the planets — no cuts. Scroll out and it runs the other way. Keep the wheel turning and the zoom speeds up.
+
 - 📱 **Camera Passthrough AR**
   View the map through your device camera. The survey floats as a fixed object in the room — move the phone to look around it, pinch to change its apparent size, and tap **Recentre** to bring it back in front of you. **Fly to object** on a label's card re-centres the AR map on that object. Needs a secure context (HTTPS) and a motion sensor; without a gyroscope it falls back to drag-to-look over the live feed.
 

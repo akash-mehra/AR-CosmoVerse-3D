@@ -44,6 +44,7 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 2 | AR shell: camera passthrough + device-orientation look-around | Done |
 | 3 | Gesture control: two-handed sky turning, inertia, star trails | Done, untested on a real device |
 | 3a | Milky Way, name search, Solar System: moons, belts, dwarf planets, comet, real sky, cards, travel | Done; Solar System not yet reachable from AR |
+| 3b | Continuous scale: one zoom from the cosmic web down to the planets | Engine done (map ↔ Solar System); next: a nearby-stars layer, then a tour engine |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
 **Phase 3a notes.** The Milky Way was missing — only a 1 Mpc "Earth" sphere at
@@ -84,6 +85,17 @@ It is now dense enough to feel like travelling through a galaxy:
 Still to do: make the Solar System reachable from AR, and photographic maps for
 the moons and dwarf planets (only the Sun and planets have them; Wikimedia kept
 rate-limiting the Moon's).
+
+**Phase 3b notes.** The first step toward an "ultimate universe tour" (the
+owner's goal): scales join up instead of cutting between scenes. Aim at the Sun
+(the Earth Origin preset does) and keep scrolling: the map runs down through the
+Milky Way to a few parsecs, where the Solar System fades in around the Sun and
+takes the controls, and on in to the planets; scrolling out runs the same way
+back. No button, no cut. It is built as layers so more can slot in; the gap it
+leaves open is between ~3 pc and ~1 kpc, where a nearby-stars layer (HYG/Gaia,
+exoplanet systems) belongs next, then a tour engine whose chapters are data.
+Undecided and the owner's call: true scale versus cinematic compression, guided
+versus free, phone-first versus desktop/VR, download budget, narration voice.
 
 **Phase 3 notes.** Modelled on the Moon Knight sky-turning shot the owner
 supplied: open palms raised, the celestial sphere swinging past a stationary
@@ -160,7 +172,10 @@ src/
   ui/search.js               Name/ID matching behind the header's Search
   data/milkyWay.js           Galactic frame constants and the Milky Way entry
   rendering/MilkyWayModel.js Procedural Milky Way point model at the centre
-  solar/MilkyWayPortal.js    Easter-egg button, the dive, galaxy <-> Solar System
+  rendering/LayerBlend.js    Draws a layer off-screen and fades it over the canvas
+  rendering/accelerateZoom.js Wheel zoom that speeds up while you keep scrolling
+  solar/MilkyWayPortal.js    Galaxy <-> Solar System: the zoom bridge, the wormhole button
+  solar/scale.js             Where the Solar System sits in the map: units, axes, band
   solar/Wormhole.js          The trip: tunnel shader, ship's bridge, synthesised sound
   solar/SolarSystem.js       Lazy-loaded scene: bodies, labels, cards, tour, time
   solar/data.js              Every body's elements, sizes and card facts; scaling
@@ -265,10 +280,12 @@ boundary that reports on the boot screen rather than leaving a black page.
   reads raw pixels, so it stays bright while the full-screen passthrough is
   dimmed — which is what lets you frame your hands in the preview without
   turning the dimming off. Do not "fix" this by filtering the preview canvas.
-- `controls.minDistance` is 0.03 Mpc, lowered in steps from 5.0 so first the
-  Local Group and then the Milky Way (0.03 Mpc across) can fill the view, and
-  the camera's near plane is 0.002 to match — each time it lagged, whatever you
-  flew in to see was clipped. The coordinate rings do not write depth, because
+- `controls.minDistance` is 0.03 Mpc (the Milky Way filling the view), lowered
+  in steps from 5.0; each time the near plane lagged it, whatever you flew in
+  to see was clipped, so near now follows the distance to the target
+  (`updateLocalScale`, 0.02× of it, capped at 0.002). Aimed at the Sun there is
+  no 0.03 floor: the portal sets `minDistance` and `zoomToCursor` every frame
+  (see the scale gotchas), so set them nowhere else. The coordinate rings do not write depth, because
   depth is coarse that far out. `ARMode.MIN_DISTANCE` matches it for the same
   reason: at its old value of 5 Mpc, entering AR near Andromeda snapped the map
   back out.
@@ -315,6 +332,37 @@ boundary that reports on the boot screen rather than leaving a black page.
   the shader (`mod`), so there is always some to fly through. Neither shows
   motion by itself; the warp does: `updateWarp` measures the camera's real
   speed and heading each frame and the star/dust shaders streak along it.
+- **Scales are layers joined by a band** (`solar/scale.js`). The map (Mpc,
+  equatorial) and the Solar System (compressed display units, ecliptic) are
+  both centred on the Sun; `MPC_PER_UNIT` pins them at the Oort Cloud's edge
+  (2,100 units ≈ 0.48 pc) and `solarFromMap`/`mapFromSolar` convert points and
+  directions. Between `BAND_INNER` and `BAND_OUTER` (0.9–3.2 pc) both draw from
+  one camera: the Solar System renders off-screen and `LayerBlend` fades it over
+  the map. Control changes hands at 0.45/0.55 of the band (hysteresis).
+  Whoever lacks the controls is placed from the other: `driveMap` is the map's
+  `cameraDriver` while the Solar System owns the view (AR is not the only
+  driver), and `bridgeFromMap` places the Solar System's camera the other way.
+  Only when aimed at the Sun: the target within `BAND_INNER` of it.
+- **Across the band both layers need one lens and one roll, measured to 0.00
+  px.** A 45° versus 50° field of view alone put stars 80 px apart, so the lens
+  blends from `SOLAR_FOV` to the map's (`scene.fov`, kept by `onResize`). The
+  two layers' ups differ by up to 180° seen along some lines of sight, so the
+  view rolls about the line of sight at a steady rate from `ROLL_FROM` (1,000
+  units) out to `BAND_OUTER`. Turning the up vector itself swung 45° in a small
+  zoom wherever its path neared the line of sight. The roll must be set before
+  each layer draws: `GalaxyScene.afterControls` runs between the controls and
+  the render for exactly this, and the Solar System steps, is measured, then
+  draws. The wormhole's arrival is exempt and flies in level.
+- **Flights are logarithmic** (`GalaxyScene.stepFlight`): the target eases
+  across, the view direction slerps and the distance to the target
+  interpolates on a log scale. A straight lerp from the survey to a few
+  parsecs spent the whole flight at the far end and arrived in one frame.
+- **Crossing ten orders of magnitude needs faster zoom.** A wheel notch is
+  ×0.95 by default: 450 notches from Earth Origin to the planets.
+  `accelerateZoom` raises OrbitControls' `zoomSpeed` to 5× while notches come
+  less than 150 ms apart; a single notch is unchanged, pinch is untouched.
+- **The Earth beacon becomes the Sun** inside ~1 kpc (it warms from blue), and
+  no longer has a minimum size: at 80 pc it engulfed the camera near the Sun.
 - **The wormhole borrows the map's renderer, and the frame from it.** While
   its mouth opens it is drawn over the map just rendered (`autoClear` off);
   once it covers the screen `portal.ownsFrame` is true and the frame loop stops
@@ -519,7 +567,20 @@ you hand it: `arMode.handPreview.draw({ video, hands: [{points, role}], engaged,
 mirrored })` with 21 synthetic normalised points per hand renders the full
 skeleton without MediaPipe.
 
-To reach the Solar System, search "Milky Way" (it flies to 0.077 Mpc, inside
+To test the continuous zoom, click `[data-landmark="earth"]` (aims at the Sun)
+and move whichever camera owns the view along its line of sight:
+`scene.camera.position.setLength(mpc)` while `portal.active` is false,
+`portal.solar.camera.position.setLength(mpc / MPC_PER_UNIT)` once true.
+`portal.band`, `portal.active` and `portal.ownsFrame` say where you are.
+SwiftShader draws a few frames a second, so wait on a clock rather than a
+timeout: `portal.solar.moonClock + scene.uniforms.uTime.value` advances
+whichever layer draws. To check the layers agree, project the same
+directions through `scene.camera` and `portal.solar.camera` (converting with
+the obliquity rotation) and compare pixels; it should be 0. Playwright's wheel
+events arrive too slowly for `accelerateZoom`; dispatch `WheelEvent`s in the
+page on a timer to test it.
+
+To reach the Solar System by the wormhole, search "Milky Way" (it flies to 0.077 Mpc, inside
 the portal's 0.12 range) and click `.portal-btn`; `portal.active` flips after
 the wormhole trip. `portal.wormhole` exposes `phase` (`open`, `cruise`, `exit`),
 `t`, `covers` and `loaded`, and a tap once loaded skips to the exit. Its clock
