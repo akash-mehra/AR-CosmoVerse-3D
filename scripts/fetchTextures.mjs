@@ -1,14 +1,15 @@
 /*
- * Rebuilds public/textures/bodies/: a global map of the Moon, the Galilean and
- * major Saturnian moons, Pluto, Charon and Ceres, at ~2K (everyday) and ~4K
- * (close-up), plus the Moon's relief as a normal map, a manifest of every file
- * and its size, and CREDITS.md.
+ * Rebuilds public/textures/bodies/: a global map of Earth (day, night lights
+ * and clouds), the Moon, Phobos, the Galilean and major Saturnian moons,
+ * Triton, Pluto, Charon and Ceres, at ~2K (everyday) and ~4K (close-up), plus
+ * the Moon's relief as a normal map, a manifest of every file and its size,
+ * and CREDITS.md.
  *
  *   NODE_USE_ENV_PROXY=1 npm run fetch:textures   (behind the agent proxy)
  *
- * Sources are spacecraft mosaics from NASA's Scientific Visualization Studio,
- * NASA's image library and the Planetary Data System's mosaic archive (run by
- * USGS). Every source records its licence; one without is refused. Downloads
+ * Sources are spacecraft mosaics from NASA's Earth Observatory, its Scientific
+ * Visualization Studio, its image library and the Planetary Data System's
+ * mosaic archive (run by USGS). Every source records its licence; one without is refused. Downloads
  * are cached in node_modules/.cache and checked against their published MD5 or
  * length, so a dropped connection cannot pass for a map.
  *
@@ -30,6 +31,7 @@ const CONVENTION = 'Equirectangular, north up, east to the right, 0° longitude 
 
 const PDS = 'https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/';
 const SVS = 'https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/';
+const EO = 'https://eoimages.gsfc.nasa.gov/images/imagerecords/';
 const NASA_GUIDELINES = 'https://www.nasa.gov/nasa-brand-center/images-and-media/';
 
 const LICENCES = {
@@ -55,15 +57,30 @@ const NEW_HORIZONS = 'NASA/JHUAPL/SwRI (New Horizons LORRI, MVIC); mosaic via US
 
 /**
  * `pds` names a mosaic in the archive, framed from its ISIS label; anything
- * else gives `url` and `left`, the east longitude of its left edge.
+ * else gives `url` and `left`, the east longitude of its left edge. `layers`
+ * are further maps framed like the first; `filled` marks a mosaic whose gaps
+ * were painted in, so black pixels cannot measure what was seen.
  */
 const BODIES = [
+  {
+    id: 'earth', name: 'Earth', url: `${EO}74000/74218/world.200412.3x5400x2700.jpg`, left: -180,
+    credit: 'NASA Earth Observatory: Blue Marble Next Generation (MODIS, December 2004), Black Marble 2016 (Suomi NPP VIIRS) and Blue Marble clouds (MODIS)',
+    layers: {
+      night: { url: `${EO}144000/144898/BlackMarble_2016_3km.jpg` },
+      clouds: { url: `${EO}57000/57747/cloud_combined_8192.tif`, grey: true }
+    },
+    ...LICENCES.nasa
+  },
   {
     id: 'moon', name: 'Moon', url: `${SVS}lroc_color_16bit_srgb_8k.tif`, left: -180,
     credit: "NASA's Scientific Visualization Studio (CGI Moon Kit): LRO LROC WAC colour mosaic (NASA/GSFC/Arizona State University) and LOLA elevation (NASA/GSFC)",
     // Floating-point km above a 1737.4 km sphere, same framing as the colour map.
     relief: { url: `${SVS}ldem_16.tif`, radiusKm: 1737.4 },
     ...LICENCES.svs
+  },
+  {
+    id: 'phobos', name: 'Phobos', pds: 'Phobos_Viking_Mosaic_40ppd_DLRcontrol',
+    credit: 'NASA/JPL (Viking Orbiter); mosaic by P. Stooke (University of Western Ontario), via the PDS', ...LICENCES.pds
   },
   { id: 'io', name: 'Io', pds: 'Io_GalileoSSI-Voyager_Global_Mosaic_ClrMerge_1km', credit: GALILEO, ...LICENCES.pds },
   { id: 'europa', name: 'Europa', pds: 'Europa_Voyager_GalileoSSI_global_mosaic_500m', credit: GALILEO, ...LICENCES.pds },
@@ -80,6 +97,11 @@ const BODIES = [
   { id: 'rhea', name: 'Rhea', pds: 'Rhea_Cassini_Voyager_mosaic_global_417m', credit: `${CASSINI}, NASA/JPL (Voyager); mosaic via the PDS`, ...LICENCES.pds },
   { id: 'titan', name: 'Titan', pds: 'Titan_ISS_P19658_Mosaic_Global_4km', credit: `${CASSINI}, surface at 938 nm through the haze; mosaic by JPL, via the PDS`, ...LICENCES.pds },
   { id: 'iapetus', name: 'Iapetus', pds: 'Iapetus_Cassini_Voyager_mosaic_global_783m', credit: `${CASSINI}, NASA/JPL (Voyager); mosaic via the PDS`, ...LICENCES.pds },
+  {
+    id: 'triton', name: 'Triton', pds: 'Triton_Voyager2_ClrMosaic_GlobalFill_600m',
+    credit: 'NASA/JPL (Voyager 2); mosaic by the Lunar and Planetary Institute, via the PDS', ...LICENCES.pds,
+    filled: 'Voyager 2 saw only part of Triton in 1989; the rest of this map is filled in'
+  },
   { id: 'pluto', name: 'Pluto', pds: 'Pluto_NewHorizons_Global_Mosaic_300m_Jul2017_8bit', credit: NEW_HORIZONS, ...LICENCES.pds },
   { id: 'charon', name: 'Charon', pds: 'Charon_NewHorizons_Global_Mosaic_300m_Jul2017_8bit', credit: NEW_HORIZONS, ...LICENCES.pds },
   {
@@ -192,26 +214,27 @@ async function writeJpeg(data, width, height, channels, name) {
   return { file: name, width, height, bytes: size };
 }
 
-/** One map at every size, 8-bit sRGB or greyscale, re-framed. */
-async function colourMaps(body, source, meta) {
-  const channels = meta.channels >= 3 ? 3 : 1;
+/** One map at every size, 8-bit sRGB or greyscale, re-framed; files are `${name}_${size}.jpg`. */
+async function colourMaps(file, left, name, { grey = false } = {}) {
+  const meta = await sharp(file, { limitInputPixels: false }).metadata();
+  const channels = meta.channels >= 3 && !grey ? 3 : 1;
   const maps = {};
   let imaged = null;
   for (const [key, size] of Object.entries(SIZES)) {
     // Never upscale: a 4K map made from a 4,040-pixel mosaic would only be larger.
     const width = Math.min(size, meta.width - (meta.width % 2));
     const height = width / 2;
-    const { data } = await sharp(source.file, { limitInputPixels: false })
+    const { data } = await sharp(file, { limitInputPixels: false })
       .resize(width, height, { fit: 'fill' })
       .removeAlpha()
       .toColourspace(channels === 3 ? 'srgb' : 'b-w')
       .raw()
       .toBuffer({ resolveWithObject: true });
-    const framed = reframe(data, width, height, channels, source.left);
+    const framed = reframe(data, width, height, channels, left);
     imaged ??= imagedFraction(framed, width, height, channels);
-    maps[key] = await writeJpeg(framed, width, height, channels, `${body.id}_${key}.jpg`);
+    maps[key] = await writeJpeg(framed, width, height, channels, `${name}_${key}.jpg`);
   }
-  return { maps, imaged };
+  return { maps, imaged, grey: channels === 1 };
 }
 
 /**
@@ -261,11 +284,11 @@ const mb = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
 function creditsMarkdown(manifest) {
   const rows = Object.values(manifest.bodies).map((b) =>
     `| ${b.name} | ${b.credit} | [${b.licence}](${b.licenceUrl}) | [source](${b.source}) |`);
-  return `# Moon and dwarf-planet maps
+  return `# Body maps
 
 Generated by \`npm run fetch:textures\` (scripts/fetchTextures.mjs); do not edit by hand.
-Each map comes at ~2K and ~4K; the Moon also has a normal map derived from LOLA
-elevation. ${CONVENTION}
+Each map comes at ~2K and ~4K; Earth also has night lights and clouds, and the
+Moon a normal map derived from LOLA elevation. ${CONVENTION}
 
 | Body | Credit | Licence | Source |
 | --- | --- | --- | --- |
@@ -281,20 +304,25 @@ async function main() {
   for (const body of BODIES) {
     console.log(body.name);
     const source = await resolveSource(body);
-    const meta = await sharp(source.file, { limitInputPixels: false }).metadata();
-    const { maps, imaged } = await colourMaps(body, source, meta);
+    const { maps, imaged, grey } = await colourMaps(source.file, source.left, body.id);
     const entry = {
       name: body.name,
       credit: body.credit,
       licence: body.licence,
       licenceUrl: body.licenceUrl,
       source: source.url,
-      imaged,
+      imaged: body.filled ? null : imaged,
+      // A greyscale mosaic: the renderer tints it to the body's overall colour.
+      grey,
+      ...(body.filled && { note: body.filled }),
       maps: { color: maps }
     };
+    for (const [key, layer] of Object.entries(body.layers ?? {})) {
+      entry.maps[key] = (await colourMaps(await download(layer.url), source.left, `${body.id}_${key}`, layer)).maps;
+    }
     if (body.relief) entry.maps.normal = await normalMaps(body, source.left);
     manifest.bodies[body.id] = entry;
-    console.log(`  left edge ${source.left.toFixed(2)}°E, ${Math.round(imaged * 100)}% imaged, ` +
+    console.log(`  left edge ${source.left.toFixed(2)}°E, ${entry.imaged === null ? 'gaps filled' : `${Math.round(imaged * 100)}% imaged`}, ` +
       Object.entries(maps).map(([k, m]) => `${k} ${m.width}×${m.height} ${mb(m.bytes)}`).join(', '));
   }
 

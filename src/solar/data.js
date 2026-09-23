@@ -72,6 +72,7 @@ export const PLANETS = [
   {
     name: 'Venus', radius: 0.949, radiusKm: 6052, au: 0.723, period: 0.6152, day: 243.0, tilt: 177.4, incl: 3.39, node: 76.68,
     L0: 181.9791, rate: 58517.8154, colour: [232, 205, 160], texture: 'venus.jpg',
+    atmosphere: { pressureMb: 92000, extentKm: 7 * 15.9, colour: [1.0, 0.9, 0.7], sunset: [1.0, 0.6, 0.3] },
     info: {
       type: 'Terrestrial planet',
       rows: [['Diameter', '12,104 km'], ['Year', '225 days'], ['Day', '243 days, backwards'], ['Moons', 'none'],
@@ -82,6 +83,7 @@ export const PLANETS = [
   {
     name: 'Earth', radius: 1.0, radiusKm: 6378, au: 1.0, period: 1.0, day: 0.997, tilt: 23.44, incl: 0, node: 0,
     L0: 100.4646, rate: 35999.3724, colour: [47, 111, 181], texture: 'earth.jpg', clouds: 'earth_clouds.jpg',
+    atmosphere: { pressureMb: 1014, extentKm: 7 * 8.5, colour: [0.32, 0.56, 1.0], sunset: [1.0, 0.45, 0.2] },
     info: {
       type: 'Terrestrial planet · home',
       rows: [['Diameter', '12,756 km'], ['Year', '365.25 days'], ['Day', '23 h 56 min'], ['Moons', '1'],
@@ -92,6 +94,8 @@ export const PLANETS = [
   {
     name: 'Mars', radius: 0.532, radiusKm: 3396, au: 1.524, period: 1.8808, day: 1.026, tilt: 25.19, incl: 1.85, node: 49.56,
     L0: -4.5534, rate: 19140.3027, colour: [181, 83, 42], texture: 'mars.jpg',
+    // Butterscotch dust by day; Martian sunsets are blue.
+    atmosphere: { pressureMb: 6.36, extentKm: 7 * 11.0, colour: [0.86, 0.62, 0.44], sunset: [0.45, 0.6, 0.95] },
     info: {
       type: 'Terrestrial planet',
       rows: [['Diameter', '6,792 km'], ['Year', '687 days'], ['Day', '24 h 37 min'], ['Moons', '2'],
@@ -186,6 +190,8 @@ export const MOONS = [
     info: { type: 'Moon of Saturn', rows: [['Diameter', '1,527 km'], ['Orbit', '4.5 days']],
       fact: 'Saturn\'s second-largest moon: a cold, cratered ball of ice and rock.' } },
   { name: 'Titan', parent: 'Saturn', radiusKm: 2574.7, aKm: 1221870, period: 15.945, incl: 0.3, surface: 'titan',
+    // Pressure ~60% above Earth's, air 600 km high, an orange haze that hides the ground (NASA).
+    atmosphere: { pressureMb: 1.6 * 1014, extentKm: 600, veil: 0.8, colour: [0.95, 0.62, 0.28], sunset: [0.6, 0.3, 0.1] },
     info: { type: 'Moon of Saturn', rows: [['Diameter', '5,150 km'], ['Orbit', '15.9 days']],
       fact: 'The only moon with a thick atmosphere — and with rain, rivers and seas of liquid methane.' } },
   { name: 'Iapetus', parent: 'Saturn', radiusKm: 734.5, aKm: 3560820, period: 79.32, incl: 15.5, surface: 'iapetus',
@@ -209,7 +215,7 @@ export const MOONS = [
   { name: 'Triton', parent: 'Neptune', radiusKm: 1353.4, aKm: 354759, period: 5.877, incl: 156.9, surface: 'triton',
     info: { type: 'Moon of Neptune', rows: [['Diameter', '2,707 km'], ['Orbit', '5.9 days, backwards']],
       fact: 'Orbits the wrong way round — almost certainly a captured Kuiper Belt object — and has nitrogen geysers.' } },
-  { name: 'Charon', parent: 'Pluto', radiusKm: 606, aKm: 19591, period: 6.387, incl: 0, surface: 'charon',
+  { name: 'Charon', parent: 'Pluto', radiusKm: 606, aKm: 19591, period: 6.387, incl: 0, surface: 'charon', mutual: true,
     info: { type: 'Moon of Pluto', rows: [['Diameter', '1,212 km'], ['Orbit', '6.4 days']],
       fact: 'Half Pluto\'s size; the two circle a point in the space between them, each always facing the other.' } }
 ];
@@ -230,15 +236,15 @@ export const MINOR_BODIES = [
     info: { type: 'Dwarf planet · Kuiper Belt', rows: [['Diameter', '2,377 km'], ['Year', '248 years'], ['Day', '6.4 days, backwards'],
       ['Moons', '5 · Charon shown'], ['Temperature', '≈ −230 °C']],
       fact: 'In 2015 New Horizons found its pale heart, Tombaugh Regio, whose left lobe is a vast glacier of nitrogen ice.' } },
-  { name: 'Haumea', kind: 'dwarf', radiusKm: 816, a: 43.13, e: 0.195, i: 28.2, node: 122.2, peri: 239.2, tp: 1850, period: 283.3,
+  { name: 'Haumea', kind: 'dwarf', unvisited: true, radiusKm: 816, a: 43.13, e: 0.195, i: 28.2, node: 122.2, peri: 239.2, tp: 1850, period: 283.3,
     day: 0.163, tilt: 0, surface: 'haumea', stretch: [1.35, 1.0, 0.65],
     info: { type: 'Dwarf planet · Kuiper Belt', rows: [['Size', '≈ 2,100 × 1,700 × 1,100 km'], ['Year', '283 years'], ['Day', '3 h 55 min'], ['Moons', '2']],
       fact: 'Spins so fast — every 3.9 hours — that it is stretched into an egg. It also has a ring.' } },
-  { name: 'Makemake', kind: 'dwarf', radiusKm: 715, a: 45.43, e: 0.161, i: 28.98, node: 79.62, peri: 294.8, tp: 1880, period: 306.2,
+  { name: 'Makemake', kind: 'dwarf', unvisited: true, radiusKm: 715, a: 45.43, e: 0.161, i: 28.98, node: 79.62, peri: 294.8, tp: 1880, period: 306.2,
     day: 0.94, tilt: 0, surface: 'makemake',
     info: { type: 'Dwarf planet · Kuiper Belt', rows: [['Diameter', '≈ 1,430 km'], ['Year', '306 years'], ['Day', '22.5 hours'], ['Moons', '1']],
       fact: 'Found just after Easter 2005, and named after the creator god of the Rapa Nui of Easter Island.' } },
-  { name: 'Eris', kind: 'dwarf', radiusKm: 1163, a: 67.86, e: 0.4407, i: 44.04, node: 35.95, peri: 151.64, tp: 1699.7, period: 559.1,
+  { name: 'Eris', kind: 'dwarf', unvisited: true, radiusKm: 1163, a: 67.86, e: 0.4407, i: 44.04, node: 35.95, peri: 151.64, tp: 1699.7, period: 559.1,
     day: 15.8, tilt: 0, surface: 'eris',
     info: { type: 'Dwarf planet · scattered disc', rows: [['Diameter', '2,326 km'], ['Year', '559 years'], ['Now', '≈ 96 AU, near its farthest'], ['Moons', '1']],
       fact: 'Almost exactly Pluto\'s size. Its discovery in 2005 is why "dwarf planet" was defined in 2006.' } },

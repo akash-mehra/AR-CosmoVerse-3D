@@ -5,6 +5,59 @@
     "4k": 4096
   },
   "bodies": {
+    "earth": {
+      "name": "Earth",
+      "credit": "NASA Earth Observatory: Blue Marble Next Generation (MODIS, December 2004), Black Marble 2016 (Suomi NPP VIIRS) and Blue Marble clouds (MODIS)",
+      "licence": "NASA content, not subject to copyright in the US (NASA media usage guidelines)",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://eoimages.gsfc.nasa.gov/images/imagerecords/74000/74218/world.200412.3x5400x2700.jpg",
+      "imaged": 0.995,
+      "grey": false,
+      "maps": {
+        "color": {
+          "2k": {
+            "file": "earth_2k.jpg",
+            "width": 2048,
+            "height": 1024,
+            "bytes": 197855
+          },
+          "4k": {
+            "file": "earth_4k.jpg",
+            "width": 4096,
+            "height": 2048,
+            "bytes": 665826
+          }
+        },
+        "night": {
+          "2k": {
+            "file": "earth_night_2k.jpg",
+            "width": 2048,
+            "height": 1024,
+            "bytes": 99788
+          },
+          "4k": {
+            "file": "earth_night_4k.jpg",
+            "width": 4096,
+            "height": 2048,
+            "bytes": 348837
+          }
+        },
+        "clouds": {
+          "2k": {
+            "file": "earth_clouds_2k.jpg",
+            "width": 2048,
+            "height": 1024,
+            "bytes": 470952
+          },
+          "4k": {
+            "file": "earth_clouds_4k.jpg",
+            "width": 4096,
+            "height": 2048,
+            "bytes": 1717441
+          }
+        }
+      }
+    },
     "moon": {
       "name": "Moon",
       "credit": "NASA's Scientific Visualization Studio (CGI Moon Kit): LRO LROC WAC colour mosaic (NASA/GSFC/Arizona State University) and LOLA elevation (NASA/GSFC)",
@@ -12,6 +65,7 @@
       "licenceUrl": "https://svs.gsfc.nasa.gov/help/",
       "source": "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_16bit_srgb_8k.tif",
       "imaged": 1,
+      "grey": false,
       "maps": {
         "color": {
           "2k": {
@@ -43,6 +97,31 @@
         }
       }
     },
+    "phobos": {
+      "name": "Phobos",
+      "credit": "NASA/JPL (Viking Orbiter); mosaic by P. Stooke (University of Western Ontario), via the PDS",
+      "licence": "NASA Planetary Data System archive product, no copyright holder named (NASA media usage guidelines)",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Phobos_Viking_Mosaic_40ppd_DLRcontrol.tif",
+      "imaged": 1,
+      "grey": true,
+      "maps": {
+        "color": {
+          "2k": {
+            "file": "phobos_2k.jpg",
+            "width": 2048,
+            "height": 1024,
+            "bytes": 334413
+          },
+          "4k": {
+            "file": "phobos_4k.jpg",
+            "width": 4096,
+            "height": 2048,
+            "bytes": 1166323
+          }
+        }
+      }
+    },
     "io": {
       "name": "Io",
       "credit": "NASA/JPL (Galileo SSI, Voyager); mosaic via USGS Astrogeology and the PDS",
@@ -50,6 +129,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Io_GalileoSSI-Voyager_Global_Mosaic_ClrMerge_1km.tif",
       "imaged": 1,
+      "grey": false,
       "maps": {
         "color": {
           "2k": {
@@ -74,6 +154,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Europa_Voyager_GalileoSSI_global_mosaic_500m.tif",
       "imaged": 0.995,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -98,6 +179,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Ganymede_Voyager_GalileoSSI_Global_ClrMosaic_1435m.tif",
       "imaged": 0.996,
+      "grey": false,
       "maps": {
         "color": {
           "2k": {
@@ -122,6 +204,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Callisto_Voyager_GalileoSSI_global_mosaic_1km.tif",
       "imaged": 0.992,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -146,6 +229,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://images-assets.nasa.gov/image/PIA17214/PIA17214~orig.jpg",
       "imaged": 1,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -170,6 +254,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Enceladus_Cassini_mosaic_global_110m.tif",
       "imaged": 0.998,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -194,6 +279,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Tethys_Cassini_mosaic_global_293m.tif",
       "imaged": 0.999,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -218,6 +304,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Dione_Cassini_Voyager_mosaic_global_154m.tif",
       "imaged": 0.997,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -242,6 +329,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Rhea_Cassini_Voyager_mosaic_global_417m.tif",
       "imaged": 1,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -266,6 +354,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Titan_ISS_P19658_Mosaic_Global_4km.tif",
       "imaged": 0.999,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -290,6 +379,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Iapetus_Cassini_Voyager_mosaic_global_783m.tif",
       "imaged": 1,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -307,6 +397,32 @@
         }
       }
     },
+    "triton": {
+      "name": "Triton",
+      "credit": "NASA/JPL (Voyager 2); mosaic by the Lunar and Planetary Institute, via the PDS",
+      "licence": "NASA Planetary Data System archive product, no copyright holder named (NASA media usage guidelines)",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Triton_Voyager2_ClrMosaic_GlobalFill_600m.tif",
+      "imaged": null,
+      "grey": false,
+      "note": "Voyager 2 saw only part of Triton in 1989; the rest of this map is filled in",
+      "maps": {
+        "color": {
+          "2k": {
+            "file": "triton_2k.jpg",
+            "width": 2048,
+            "height": 1024,
+            "bytes": 167727
+          },
+          "4k": {
+            "file": "triton_4k.jpg",
+            "width": 4096,
+            "height": 2048,
+            "bytes": 533835
+          }
+        }
+      }
+    },
     "pluto": {
       "name": "Pluto",
       "credit": "NASA/JHUAPL/SwRI (New Horizons LORRI, MVIC); mosaic via USGS Astrogeology and the PDS",
@@ -314,6 +430,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Pluto_NewHorizons_Global_Mosaic_300m_Jul2017_8bit.tif",
       "imaged": 0.767,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -338,6 +455,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Charon_NewHorizons_Global_Mosaic_300m_Jul2017_8bit.tif",
       "imaged": 0.737,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -362,6 +480,7 @@
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/Ceres_Dawn_FC_DLR_global_20ppd_Oct2015.tif",
       "imaged": 0.996,
+      "grey": true,
       "maps": {
         "color": {
           "2k": {
@@ -382,12 +501,12 @@
   },
   "totals": {
     "2k": {
-      "files": 16,
-      "bytes": 5762339
+      "files": 21,
+      "bytes": 7033074
     },
     "4k": {
-      "files": 16,
-      "bytes": 18986996
+      "files": 21,
+      "bytes": 23419258
     }
   }
 }
