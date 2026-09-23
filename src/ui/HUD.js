@@ -60,6 +60,9 @@ export class HUD {
           <button class="landmark-btn search-btn" id="btn-search" type="button" aria-expanded="false" aria-controls="search-panel" title="Find a galaxy, cluster or quasar by name (/)">
             <span class="icon">🔍</span> Search
           </button>
+          <button class="landmark-btn tour-btn" id="btn-tour" type="button" title="A guided journey from Earth to the edge of the universe">
+            <span class="icon">🎬</span> Tour
+          </button>
           <button class="landmark-btn" data-landmark="bootes" title="Focus on 200 Million Light-Year Boötes Void">
             <span class="icon">🕳️</span> Boötes Void
           </button>
@@ -302,6 +305,7 @@ export class HUD {
     $('select-order').addEventListener('change', e => this.controller.setOrder(e.target.value));
 
     // 5. Landmark tour buttons
+    document.getElementById('btn-tour').addEventListener('click', () => this.onStartTour?.());
     this.landmarkBtns = document.querySelectorAll('.landmark-btn[data-landmark]');
     this.landmarkBtns.forEach(btn => {
       btn.addEventListener('click', () => this.flyToLandmark(btn.getAttribute('data-landmark')));
@@ -539,14 +543,14 @@ export class HUD {
     this.drawHistogram();
   }
 
-  flyToLandmark(name) {
+  flyToLandmark(name, duration) {
     this.landmarkBtns.forEach(b => b.classList.toggle('active', b.getAttribute('data-landmark') === name));
     // Quasar Dawn is the z > 4 frontier, which the default 0–0.3 slice hides:
     // the camera used to fly out to an empty sky.
     if (name === 'quasar_dawn' && this.maxZFilter < MAX_CATALOG_Z) {
       this.setRedshiftFilter(this.minZFilter, MAX_CATALOG_Z);
     }
-    this.scene.flyToLandmark(name);
+    this.scene.flyToLandmark(name, false, duration);
   }
 
   toggleOrbit() {
@@ -643,7 +647,7 @@ export class HUD {
     // A single click is left to the named-object layer, which selects labels.
     window.addEventListener('dblclick', e => {
       if (e.target !== this.scene.renderer.domElement) return;
-      if (this.container.matches('.ar-active, .solar-active, .warp-active')) return;
+      if (this.container.matches('.ar-active, .solar-active, .warp-active, .tour-active')) return;
       e.preventDefault();
       const direction = e.shiftKey || e.altKey ? 'out' : 'in';
       this.scene.zoomAtScreenPoint(e.clientX, e.clientY, direction);
@@ -669,7 +673,7 @@ export class HUD {
       if (e.key === ' ' && e.target.closest?.('button')) return;
       // The HUD is hidden in AR, the wormhole and the Solar System, so its shortcuts would
       // act on nothing visible.
-      if (this.container.matches('.ar-active, .solar-active, .warp-active')) return;
+      if (this.container.matches('.ar-active, .solar-active, .warp-active, .tour-active')) return;
 
       const action = actions[e.key.toLowerCase()];
       if (!action) return;
