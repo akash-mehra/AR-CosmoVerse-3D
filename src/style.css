@@ -1654,6 +1654,177 @@ canvas {
   color: #fff3dc;
 }
 
+/* Quieter labels for the small and the far away. */
+.solar-label.kind-moon,
+.solar-label.kind-dwarf,
+.solar-label.kind-comet {
+  font-size: 0.66rem;
+  padding: 1px 7px;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.solar-label.kind-belt {
+  font-size: 0.66rem;
+  font-style: italic;
+  border-style: dashed;
+  border-color: rgba(200, 185, 150, 0.35);
+  color: rgba(235, 225, 205, 0.85);
+}
+
+.solar-label.kind-sky {
+  font-size: 0.64rem;
+  padding: 1px 7px;
+  background: rgba(8, 10, 20, 0.35);
+  border-color: rgba(160, 180, 255, 0.2);
+  color: rgba(210, 220, 255, 0.78);
+}
+
+.solar-top {
+  flex-wrap: wrap;
+}
+
+.solar-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.solar-speed {
+  display: flex;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.solar-speed button {
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.solar-speed button:last-child {
+  border-right: none;
+}
+
+.solar-speed button[aria-pressed='true'] {
+  background: rgba(255, 190, 90, 0.28);
+  color: #fff3dc;
+}
+
+.solar-date {
+  font-family: var(--font-mono);
+}
+
+/* Docked to the side, not pinned to the body, so it never hides what it describes. */
+.solar-card {
+  position: absolute;
+  top: max(96px, calc(env(safe-area-inset-top) + 96px));
+  right: max(16px, env(safe-area-inset-right));
+  width: 300px;
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  padding: 16px 18px 18px;
+  pointer-events: auto;
+  /* .glass-card animates every property. */
+  transition: none;
+}
+
+.solar-card-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.solar-card-title {
+  font-size: 1.1rem;
+  padding-right: 22px;
+}
+
+.solar-card-type {
+  margin-top: 3px;
+  font-size: 0.72rem;
+  color: #ffd79a;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.solar-card-rows {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.solar-card-rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.76rem;
+}
+
+.solar-card-rows dt {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.solar-card-rows dd {
+  text-align: right;
+}
+
+.solar-card-fact {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-main);
+}
+
+.solar-card-follow {
+  margin-top: 12px;
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  /* A bottom sheet on phones, above the hint line. */
+  .solar-card {
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 42vh;
+  }
+
+  .solar-top .control-btn[data-solar='exit'] {
+    font-size: 0.72rem;
+  }
+
+  /* Smaller, never hidden: the map licence (CC BY) requires the credit. The
+     hint goes instead; drag and pinch need no explaining on a phone. */
+  .solar-credit {
+    left: 12px;
+    right: 12px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    font-size: 0.6rem;
+    text-align: center;
+  }
+
+  .solar-hint {
+    display: none;
+  }
+}
+
 .solar-hint,
 .solar-credit {
   position: absolute;

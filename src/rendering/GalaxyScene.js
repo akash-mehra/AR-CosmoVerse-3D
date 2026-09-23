@@ -411,7 +411,7 @@ export class GalaxyScene {
   updateLocalScale() {
     const toEarth = this.camera.position.length();
     this.earthMarker.scale.setScalar(THREE.MathUtils.clamp(toEarth * 0.004, 0.00008, 1));
-    this.milkyWay.update(this.camera);
+    this.milkyWay.update(this.camera, this.height * this.pixelRatio * 0.5, this.pixelRatio);
   }
 
   update(deltaTime) {

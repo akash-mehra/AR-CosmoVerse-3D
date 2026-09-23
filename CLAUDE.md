@@ -43,7 +43,7 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 1 | Named objects: catalogue data, zoom-gated labels, detail card | Done, dataset populated |
 | 2 | AR shell: camera passthrough + device-orientation look-around | Done |
 | 3 | Gesture control: two-handed sky turning, inertia, star trails | Done, untested on a real device |
-| 3a | Milky Way model, name search, Solar System easter egg | Base done; more detail next |
+| 3a | Milky Way, name search, Solar System: moons, belts, dwarf planets, comet, real sky, cards, travel | Done; Solar System not yet reachable from AR |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
 **Phase 3a notes.** The Milky Way was missing — only a 1 Mpc "Earth" sphere at
@@ -53,9 +53,33 @@ centre, with the Sun (the origin) in the disc 8.2 kpc out, plus a named entry
 so it labels, searches and opens a card. Zooming within ~0.12 Mpc of it shows
 "Enter the Milky Way", which swaps the map for a Solar System: the Sun, eight
 planets at today's positions on their real periods, inclinations and tilts,
-real texture maps, Saturn's rings, and a starfield with the Milky Way band.
-Still to do in 3a: moons, planet detail cards, a time control, and making the
-Solar System reachable from AR.
+real texture maps and Saturn's rings.
+
+It is now dense enough to feel like travelling through a galaxy:
+- **Getting there is a journey.** "Enter" dives the map's camera down through
+  the galactic disc to the Sun (loading the Solar System meanwhile), then the
+  Solar System opens with an approach from outside the Oort Cloud, stars
+  streaking past, easing in to the planets. Leaving rises back out.
+- **Contents.** 21 major moons (log-compressed orbits, in their planet's
+  equatorial plane, tidally locked), Ceres, Pluto + Charon, Haumea (stretched),
+  Makemake, Eris and Halley's Comet on real eccentric orbits solved from
+  Kepler's equation (the comet grows a coma, an ion tail and a curved dust tail
+  inside ~5 AU — jump to 2061 to see it), the asteroid belt with its Kirkwood
+  gaps, Jupiter's Trojans, the Kuiper Belt, zodiacal dust and a (not to scale)
+  Oort Cloud.
+- **The real sky.** The Milky Way band lies along the true galactic plane, with
+  the core glow in Sagittarius and the Great Rift; nebulae (Orion, Carina,
+  Lagoon, Eagle), galaxies (Andromeda, both Magellanic Clouds), the Pleiades
+  and nearby/bright stars sit at their real directions.
+- **Motion.** Stars stretch into streaks by the camera's real speed and
+  direction, and interplanetary dust drifts past the camera.
+- **Detail cards** for every named thing (tap a label or a body); a Grand tour
+  flies Sun → Kuiper Belt stopping at each world; time runs at pause, 1×, 10× or
+  100× (1× = one Earth year every 30 s) from today's date.
+
+Still to do: make the Solar System reachable from AR, and photographic maps for
+the moons and dwarf planets (only the Sun and planets have them; Wikimedia kept
+rate-limiting the Moon's).
 
 **Phase 3 notes.** Modelled on the Moon Knight sky-turning shot the owner
 supplied: open palms raised, the celestial sphere swinging past a stationary
@@ -128,8 +152,14 @@ src/
   ui/search.js               Name/ID matching behind the header's Search
   data/milkyWay.js           Galactic frame constants and the Milky Way entry
   rendering/MilkyWayModel.js Procedural Milky Way point model at the centre
-  solar/MilkyWayPortal.js    Easter-egg button, warp veil, galaxy <-> Solar System
-  solar/SolarSystem.js       Lazy-loaded: Sun, planets, rings, stars, labels
+  solar/MilkyWayPortal.js    Easter-egg button, the dive, galaxy <-> Solar System
+  solar/SolarSystem.js       Lazy-loaded scene: bodies, labels, cards, tour, time
+  solar/data.js              Every body's elements, sizes and card facts; scaling
+  solar/kepler.js            Kepler's equation for the eccentric orbits
+  solar/sky.js               Real sky (band, nebulae, stars), warp shader, dust
+  solar/belts.js             GPU Keplerian belts: asteroids, Trojans, Kuiper, Oort
+  solar/textures.js          Procedural surfaces and sky sprites
+  solar/BodyCard.js          The docked detail card
   controller/PlottingController.js  Progressive "plot one by one" engine
 public/textures/solar/       Planet maps (CC BY 4.0, see CREDITS.md there)
 ```
@@ -256,13 +286,42 @@ boundary that reports on the boot screen rather than leaving a black page.
   Retrograde spin is expressed by the tilt (Venus 177°, Uranus 98°), never by a
   negative day as well, which would cancel out. Saturn's rings are unlit: the
   Sun grazes the ring plane and a lit ring came out black.
+- **One frame for everything in the Solar System**: ecliptic in the XZ plane,
+  ecliptic north on +Y, longitude 0 (the vernal equinox) on +X, and a body at
+  longitude λ sits at `(cos λ, 0, −sin λ)`. Planets (node → inclination →
+  circle), eccentric bodies, the GPU belts and the sky all use it — the sky
+  converts RA/Dec through the obliquity and galactic (l, b) through
+  `galacticBasis()`. Mix conventions and the Trojans leave Jupiter, or Orion
+  turns up in the wrong place.
+- **A retrograde orbit is an inclination over 90°** (Triton 157°, Halley 162°),
+  exactly as a retrograde spin is a tilt over 90°. A negative period on top
+  cancels it — Triton briefly orbited forwards that way.
+- **The belts move on the GPU.** `belts.js` stores each particle's orbit and
+  the vertex shader places it from `uYears`, so 22k particles cost nothing on
+  the CPU. The Trojans start at Jupiter's own mean longitude ±60° and share its
+  period; derive `jupiterStart` from the same elements the planet uses.
+- **The sky group and the dust follow the camera.** The sky sits at
+  `SKY_RADIUS` around the camera with sprite sizes set as angles, so it stays
+  at infinity at any zoom. Dust lives in a box that wraps around the camera in
+  the shader (`mod`), so there is always some to fly through. Neither shows
+  motion by itself; the warp does: `updateWarp` measures the camera's real
+  speed and heading each frame and the star/dust shaders streak along it.
+- **The Milky Way model has its own point shader** capped at a few pixels and
+  fading within ~2 kpc of the camera. With `PointsMaterial` the dive into the
+  disc filled the screen with sprites hundreds of pixels wide.
+- **Labels declutter by priority** (Sun, planets, dwarfs, comet, regions,
+  moons, sky) and moons only get one near their planet. Tap-to-pick is a
+  raycast against body meshes that fires only if the pointer moved under 6px,
+  so dragging to orbit never selects.
 - **Planet maps are CC BY 4.0 and must stay credited** — in the Solar System's
   corner and in `public/textures/solar/CREDITS.md`. They came from Wikimedia
   Commons, not solarsystemscope.com, which serves a captcha to scripts (do not
   route around it). Commons' API rate-limits this sandbox's IP; direct
   `upload.wikimedia.org` paths are derived from the MD5 of the file name. Any
   map that is missing falls back to a procedural surface, so a 404 degrades
-  rather than breaks. The starfield and Saturn's rings are procedural anyway.
+  rather than breaks. Moons, dwarf planets, rings, the sky sprites and the
+  starfield are procedural (`textures.js`) and painted with each body's known
+  features. The credit stays visible on phones — the hint line is what goes.
 - **Anything that moves the camera around the map goes through `orbitBy`.**
   `GalaxyScene.orbitBy(dYaw, dPitch, scaleFactor)` swings the camera around the
   orbit target; `ARMode.orbitBy` has the same signature but swings the anchor
@@ -431,8 +490,12 @@ mirrored })` with 21 synthetic normalised points per hand renders the full
 skeleton without MediaPipe.
 
 To reach the Solar System, search "Milky Way" (it flies to 0.077 Mpc, inside
-the portal's 0.12 range) and click `.portal-btn`; `portal.active` flips once the
-textures load. Solar labels ride their planets, so Playwright's stability check
+the portal's 0.12 range) and click `.portal-btn`; `portal.active` flips after
+the dive and the load. A tap on the canvas skips the arrival. Drive it through
+`portal.solar`: `select(byName.get('Jupiter'))` flies there and opens its card,
+`setSpeed(100)` changes time, and setting `years` jumps the clock (years since
+entry — set it so `START_YEAR + years` is 2061.5 to catch Halley at
+perihelion). Solar labels ride their bodies, so Playwright's stability check
 never settles on them — click them through `page.evaluate`.
 
 Two traps when asserting on labels. `layoutLabels` re-runs every frame, so

@@ -22,18 +22,34 @@ function mulberry32(seed) {
   };
 }
 
-function starSprite() {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.25, 'rgba(255,255,255,0.55)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(canvas);
-}
+/*
+ * Sized like PointsMaterial's attenuated points, but capped at a few pixels
+ * and faded out within ~2 kpc of the camera: flying down into the disc toward
+ * the Sun would otherwise fill the screen with sprites hundreds of pixels wide.
+ */
+const VERTEX = `
+attribute vec3 aColor;
+uniform float uSize;
+uniform float uScale;
+uniform float uOpacity;
+uniform float uPixelRatio;
+varying vec3 vColor;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mv;
+  float depth = -mv.z;
+  gl_PointSize = clamp(uSize * uScale / depth, 1.0, 4.5 * uPixelRatio);
+  vColor = aColor * uOpacity * smoothstep(0.0004, 0.002, depth);
+}`;
+
+const FRAGMENT = `
+varying vec3 vColor;
+void main() {
+  float d = length(gl_PointCoord - 0.5) * 2.0;
+  float a = exp(-d * d * 3.0);
+  if (a < 0.03) discard;
+  gl_FragColor = vec4(vColor, a);
+}`;
 
 /**
  * A barred spiral seen from outside: bulge and bar, four trailing log-spiral
@@ -103,14 +119,18 @@ export class MilkyWayModel {
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
 
-    this.material = new THREE.PointsMaterial({
-      size: 0.00026,
-      map: starSprite(),
-      vertexColors: true,
+    this.material = new THREE.ShaderMaterial({
+      uniforms: {
+        uSize: { value: 0.00026 },
+        uScale: { value: 400 },
+        uOpacity: { value: 1 },
+        uPixelRatio: { value: 1 }
+      },
+      vertexShader: VERTEX,
+      fragmentShader: FRAGMENT,
       transparent: true,
-      opacity: 1,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     });
@@ -131,12 +151,18 @@ export class MilkyWayModel {
     this.centre = new THREE.Vector3(centre.x, centre.y, centre.z);
   }
 
-  /** Fades in as the camera closes on it, and drops out of the draw entirely far away. */
-  update(camera) {
+  /**
+   * Fades in as the camera closes on it, and drops out of the draw entirely
+   * far away. `bufferHalfHeight` is half the drawing buffer's height in pixels.
+   */
+  update(camera, bufferHalfHeight, pixelRatio) {
     const distance = camera.position.distanceTo(this.centre);
     const opacity = THREE.MathUtils.clamp((FADE_FAR - distance) / (FADE_FAR - FADE_NEAR), 0, 1);
     this.points.visible = opacity > 0;
-    this.material.opacity = opacity;
+    const u = this.material.uniforms;
+    u.uOpacity.value = opacity;
+    u.uScale.value = bufferHalfHeight;
+    u.uPixelRatio.value = pixelRatio;
     return distance;
   }
 }

@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import { notify } from '../ui/notify.js';
+import { galacticBasis } from '../data/milkyWay.js';
 
 // Camera distance from the galactic centre, in Mpc, inside which the way in
 // appears: about four galaxy diameters, where the disc fills a good part of
 // the view.
 const ENTER_RANGE = 0.12;
 const FADE_MS = 450;
+// The dive from the galaxy view down through the disc to the Sun.
+const DIVE_MS = 2600;
+const RETURN_MS = 2400;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -66,23 +70,39 @@ export class MilkyWayPortal {
     await wait(FADE_MS);
   }
 
+  /**
+   * Just above the galactic disc beside the Sun, looking down on it: where the
+   * dive into the galaxy ends and the Solar System takes over.
+   */
+  sunView() {
+    const { x, z } = galacticBasis();
+    const position = new THREE.Vector3(z.x, z.y, z.z).multiplyScalar(0.0035)
+      .addScaledVector(new THREE.Vector3(x.x, x.y, x.z), -0.0025);
+    return { position, target: new THREE.Vector3(0, 0, 0) };
+  }
+
   async enter() {
     if (this.active || this.busy) return;
     this.busy = true;
     this.button.hidden = true;
+    this.namedLayer.clearSelection();
+
+    // Dive through the disc toward the Sun while the Solar System loads, so the
+    // wait is the journey rather than a blank screen.
+    this.returnView = { position: this.scene.camera.position.clone(), target: this.scene.controls.target.clone() };
+    const { position, target } = this.sunView();
+    this.scene.smoothFlyTo(position, target, DIVE_MS);
+    const loading = this.loadSolar();
 
     try {
-      await this.fade('Entering the Milky Way…');
-      const { SolarSystem } = await import('./SolarSystem.js');
-      if (!this.solar) {
-        this.solar = new SolarSystem(this.scene.renderer, this.container);
-        this.solar.onExit = () => this.exit();
-      }
-      await this.solar.load();
+      await wait(DIVE_MS - FADE_MS);
+      await this.fade('Arriving at the Sun…');
+      await loading;
     } catch (err) {
       console.error(err);
       notify(`Could not open the Solar System: ${err.message}`, { error: true });
       this.veil.classList.remove('visible');
+      this.scene.smoothFlyTo(this.returnView.position, this.returnView.target, RETURN_MS);
       this.busy = false;
       return;
     }
@@ -98,6 +118,15 @@ export class MilkyWayPortal {
     this.busy = false;
   }
 
+  async loadSolar() {
+    const { SolarSystem } = await import('./SolarSystem.js');
+    if (!this.solar) {
+      this.solar = new SolarSystem(this.scene.renderer, this.container);
+      this.solar.onExit = () => this.exit();
+    }
+    await this.solar.load();
+  }
+
   async exit() {
     if (!this.active || this.busy) return;
     this.busy = true;
@@ -109,6 +138,8 @@ export class MilkyWayPortal {
     this.namedLayer.suspended = false;
     this.scene.controls.enabled = true;
     this.veil.classList.remove('visible');
+    // Rise back out of the disc to where the journey started.
+    if (this.returnView) this.scene.smoothFlyTo(this.returnView.position, this.returnView.target, RETURN_MS);
     this.busy = false;
   }
 }

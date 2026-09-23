@@ -1,190 +1,31 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import {
+  DEG, EARTH_YEAR_SECONDS, SUN_RADIUS, SUN, PLANETS, MOONS, MINOR_BODIES,
+  displayRadius, displayOrbit, kmToDisplayRadius, spinSeconds, moonOrbitRadius, moonPeriodSeconds, lightTime
+} from './data.js';
+import { mulberry32, surfaceTexture, saturnRingTexture, glowTexture } from './textures.js';
+import { orbitalPosition, orbitSamples } from './kepler.js';
+import { createSky, createDust, setWarp, SKY_RADIUS } from './sky.js';
+import { createBelts } from './belts.js';
+import { BodyCard } from './BodyCard.js';
 
 const TEXTURE_ROOT = `${import.meta.env.BASE_URL}textures/solar/`;
-const DEG = Math.PI / 180;
-
-// One Earth year of simulated time per this many seconds.
-const EARTH_YEAR_SECONDS = 30;
-// Real sizes and distances cannot share a screen — at true scale every planet
-// is sub-pixel. Both are compressed by a power law so the order and the
-// proportions still read: Jupiter is still the giant, Neptune still far out.
-const displayRadius = (earthRadii) => 0.55 * earthRadii ** 0.55;
-const displayOrbit = (au) => 8 + 13 * au ** 0.62;
-// Real day lengths span 0.4 to 243 days; spin is compressed the same way so
-// Venus still barely turns and Jupiter still whips round.
-const spinSeconds = (days) => 8 * days ** 0.35;
-const SUN_RADIUS = 4.2;
-
-/*
- * Mean orbital elements (J2000, JPL approximate elements). `L0` and `rate` give
- * the mean longitude in degrees and degrees per Julian century, so each planet
- * starts where it actually is today. Orbits are drawn circular.
- * Retrograde spin is expressed by the tilt (Venus 177°, Uranus 98°), not by a
- * negative day.
- */
-const PLANETS = [
-  { name: 'Mercury', radius: 0.383, au: 0.387, period: 0.2408, day: 58.65, tilt: 0.03, incl: 7.0, node: 48.33, L0: 252.2503, rate: 149472.6741, colour: [140, 134, 128], texture: 'mercury.jpg' },
-  { name: 'Venus', radius: 0.949, au: 0.723, period: 0.6152, day: 243.0, tilt: 177.4, incl: 3.39, node: 76.68, L0: 181.9791, rate: 58517.8154, colour: [232, 205, 160], texture: 'venus.jpg' },
-  { name: 'Earth', radius: 1.0, au: 1.0, period: 1.0, day: 0.997, tilt: 23.44, incl: 0, node: 0, L0: 100.4646, rate: 35999.3724, colour: [47, 111, 181], texture: 'earth.jpg', clouds: 'earth_clouds.jpg' },
-  { name: 'Mars', radius: 0.532, au: 1.524, period: 1.8808, day: 1.026, tilt: 25.19, incl: 1.85, node: 49.56, L0: -4.5534, rate: 19140.3027, colour: [181, 83, 42], texture: 'mars.jpg' },
-  { name: 'Jupiter', radius: 11.21, au: 5.203, period: 11.862, day: 0.414, tilt: 3.13, incl: 1.3, node: 100.47, L0: 34.3964, rate: 3034.7461, colour: [201, 162, 122], texture: 'jupiter.jpg' },
-  { name: 'Saturn', radius: 9.45, au: 9.537, period: 29.457, day: 0.444, tilt: 26.73, incl: 2.49, node: 113.66, L0: 49.9542, rate: 1222.4936, colour: [227, 211, 163], texture: 'saturn.jpg', rings: true },
-  { name: 'Uranus', radius: 4.01, au: 19.19, period: 84.011, day: 0.718, tilt: 97.77, incl: 0.77, node: 74.02, L0: 313.2381, rate: 428.482, colour: [166, 225, 232], texture: 'uranus.jpg' },
-  { name: 'Neptune', radius: 3.88, au: 30.07, period: 164.79, day: 0.671, tilt: 28.32, incl: 1.77, node: 131.78, L0: -55.12, rate: 218.4595, colour: [75, 112, 221], texture: 'neptune.jpg' }
-];
-
-/** Julian centuries since J2000, for today's planet positions. */
-const centuriesSinceJ2000 = () => (Date.now() / 86400000 + 2440587.5 - 2451545.0) / 36525;
-
-function mulberry32(seed) {
-  return () => {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function canvasTexture(width, height, paint) {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  paint(canvas.getContext('2d'), width, height);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-/**
- * Stand-in surface for a body whose map is missing: its real colour, mottled,
- * with craters for the airless rocky ones and ice caps for Mars.
- */
-function proceduralSurface({ name, colour: [r, g, b] }) {
-  const rand = mulberry32(name.length * 7919);
-  return canvasTexture(512, 256, (ctx, w, h) => {
-    ctx.fillStyle = `rgb(${r},${g},${b})`;
-    ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 900; i++) {
-      const shade = rand() < 0.5 ? 0 : 255;
-      ctx.fillStyle = `rgba(${shade},${shade},${shade},${0.03 + rand() * 0.05})`;
-      ctx.beginPath();
-      ctx.arc(rand() * w, rand() * h, 4 + rand() * 30, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    if (name === 'Mercury') {
-      for (let i = 0; i < 160; i++) {
-        const x = rand() * w;
-        const y = rand() * h;
-        const radius = 1.5 + rand() ** 3 * 14;
-        ctx.strokeStyle = 'rgba(40,36,32,0.45)';
-        ctx.lineWidth = 1 + radius * 0.15;
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
-    if (name === 'Mars') {
-      ctx.fillStyle = 'rgba(90,40,24,0.55)';
-      for (let i = 0; i < 40; i++) {
-        ctx.beginPath();
-        ctx.ellipse(rand() * w, h * (0.3 + rand() * 0.4), 10 + rand() * 45, 5 + rand() * 18, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = 'rgba(245,240,235,0.9)';
-      ctx.fillRect(0, 0, w, h * 0.05);
-      ctx.fillRect(0, h * 0.96, w, h * 0.04);
-    }
-  });
-}
-
-/** Radial profile of Saturn's rings, faint C ring to the Encke gap, Cassini division and all. */
-function saturnRingTexture() {
-  // Band edges as fractions of the ring's width (C ring 1.24 R to A ring 2.27 R).
-  const bands = [
-    [0.0, 0.27, 'rgba(160,140,115,0.25)'],
-    [0.27, 0.69, 'rgba(226,208,175,0.92)'],
-    [0.69, 0.75, 'rgba(40,34,28,0.08)'],
-    [0.75, 0.93, 'rgba(205,188,158,0.78)'],
-    [0.93, 0.945, 'rgba(40,34,28,0.1)'],
-    [0.945, 1.0, 'rgba(195,178,150,0.7)']
-  ];
-  const texture = canvasTexture(1024, 8, (ctx, w, h) => {
-    for (const [from, to, fill] of bands) {
-      ctx.fillStyle = fill;
-      ctx.fillRect(from * w, 0, (to - from) * w, h);
-    }
-    const rand = mulberry32(42);
-    for (let x = 0; x < w; x++) {
-      ctx.fillStyle = `rgba(0,0,0,${rand() * 0.18})`;
-      ctx.fillRect(x, 0, 1, h);
-    }
-  });
-  return texture;
-}
-
-function glowTexture(inner, outer) {
-  return canvasTexture(256, 256, (ctx, w) => {
-    const g = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
-    g.addColorStop(0, inner);
-    g.addColorStop(0.35, outer);
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, w);
-  });
-}
-
-/**
- * Background stars, and the Milky Way itself as a band across them: we are
- * inside it now, so it wraps the whole sky, tilted 60° to the planets' plane.
- */
-function starfield() {
-  const rand = mulberry32(7);
-  const count = 14000;
-  const positions = new Float32Array(count * 3);
-  const colors = new Float32Array(count * 3);
-  const radius = 2500;
-  const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 60.2 * DEG);
-  const v = new THREE.Vector3();
-
-  for (let i = 0; i < count; i++) {
-    const inBand = i < count * 0.6;
-    const lon = rand() * Math.PI * 2;
-    // Band stars hug the galactic plane; the rest spread uniformly.
-    const lat = inBand
-      ? (rand() + rand() + rand() - 1.5) * 0.18
-      : Math.asin(2 * rand() - 1);
-    v.set(Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon));
-    if (inBand) v.applyQuaternion(tilt);
-    v.multiplyScalar(radius);
-    positions.set([v.x, v.y, v.z], i * 3);
-
-    const warm = rand();
-    const brightness = inBand ? 0.35 + rand() * 0.45 : 0.45 + rand() ** 3 * 0.55;
-    colors.set([
-      brightness * (warm > 0.7 ? 1 : 0.85),
-      brightness * 0.9,
-      brightness * (warm < 0.3 ? 1 : 0.8)
-    ], i * 3);
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return new THREE.Points(geometry, new THREE.PointsMaterial({
-    size: 2.8,
-    sizeAttenuation: false,
-    vertexColors: true,
-    map: glowTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0.35)'),
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending
-  }));
-}
+const TIME_SPEEDS = [0, 1, 10, 100];
+// Arrival from interstellar space: fast at first, easing in to the planets.
+const APPROACH_SECONDS = 6.5;
+const APPROACH_FROM = new THREE.Vector3(-700, 1100, 2500);
+const TOUR = ['Sun', 'Mercury', 'Venus', 'Earth', 'Moon', 'Mars', 'Asteroid Belt', 'Jupiter', 'Io', 'Europa',
+  'Saturn', 'Titan', 'Uranus', 'Neptune', 'Triton', 'Pluto', 'Kuiper Belt'];
+const TOUR_DWELL = 7;
+// Who keeps a label when two would overlap.
+const PRIORITY = { sun: 100, planet: 90, dwarf: 72, comet: 68, belt: 60, moon: 55, sky: 30 };
+// The simulation starts now, as a decimal year, and runs forward from it.
+const START_YEAR = 1970 + Date.now() / 31557600000;
+const J2000_CENTURIES = (START_YEAR - 2000) / 100;
+const MS_PER_YEAR = 31557600000;
 
 async function loadTexture(loader, file, { data = false } = {}) {
-  if (!file) return null;
   try {
     const texture = await loader.loadAsync(TEXTURE_ROOT + file);
     // Colour maps are sRGB; an alpha map is data and must not be decoded.
@@ -196,11 +37,45 @@ async function loadTexture(loader, file, { data = false } = {}) {
   }
 }
 
+/** A potato: a sphere dented in a few places, for bodies too small to pull themselves round. */
+function lumpyGeometry(radius, seed) {
+  const geometry = new THREE.IcosahedronGeometry(radius, 3);
+  const rand = mulberry32(seed);
+  const dents = Array.from({ length: 7 }, () => ({
+    dir: new THREE.Vector3(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1).normalize(),
+    depth: 0.12 + rand() * 0.25
+  }));
+  const pos = geometry.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).normalize();
+    // A function of direction only, so vertices shared between faces agree.
+    let s = 1;
+    for (const d of dents) s -= d.depth * Math.max(0, v.dot(d.dir)) ** 3;
+    v.multiplyScalar(radius * s);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function orbitLine(points, colour, opacity) {
+  return new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineBasicMaterial({ color: colour, transparent: true, opacity, depthWrite: false })
+  );
+}
+
+const circle = (radius, count = 256) => Array.from({ length: count }, (_, k) => {
+  const a = (k / count) * Math.PI * 2;
+  return new THREE.Vector3(Math.cos(a) * radius, 0, -Math.sin(a) * radius);
+});
+
 /**
- * The Sun, the eight planets and the stars, reached by zooming into the Milky
- * Way. Planets start at their real positions for today's date and orbit at
- * their real relative periods, on their real inclinations and axial tilts;
- * sizes and distances are compressed so they fit one screen.
+ * The Solar System, reached by zooming into the Milky Way: the Sun, planets
+ * and their major moons, dwarf planets and Halley's Comet on their real
+ * orbits, the asteroid and Kuiper belts, and the sky as it really stands
+ * around us. Everything starts where it is today and runs forward in time.
  *
  * It owns its own scene, camera and OrbitControls but borrows the map's
  * renderer and canvas; MilkyWayPortal decides which of the two is drawn.
@@ -211,22 +86,39 @@ export class SolarSystem {
     this.container = container;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x010104);
-    this.camera = new THREE.PerspectiveCamera(45, 1, 0.05, 8000);
+    this.camera = new THREE.PerspectiveCamera(45, 1, 0.02, 8000);
     this.controls = new OrbitControls(this.camera, renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.06;
-    this.controls.minDistance = 1.5;
-    this.controls.maxDistance = 900;
+    this.controls.minDistance = 0.3;
+    this.controls.maxDistance = 1400;
     this.controls.enabled = false;
 
     this.bodies = [];
+    this.byName = new Map();
+    this.pickables = [];
+    this.active = false;
+    this.years = 0;
+    this.moonClock = 0;
+    this.timeScale = 1;
     this.follow = null;
-    this.size = new THREE.Vector2();
-    this._p = new THREE.Vector3();
-    this._q = new THREE.Vector3();
+    this.selected = null;
+    this.tour = null;
+    this.approach = null;
+    this.warp = 0;
+    this.dateClock = 0;
     this.loaded = null;
 
+    this.size = new THREE.Vector2();
+    this.lastCam = new THREE.Vector3();
+    this.focusNdc = new THREE.Vector2();
+    this.raycaster = new THREE.Raycaster();
+    this._p = new THREE.Vector3();
+    this._q = new THREE.Vector3();
+    this._a = new THREE.Vector3();
+
     this.renderDOM();
+    this.bindPointer();
   }
 
   renderDOM() {
@@ -238,17 +130,67 @@ export class SolarSystem {
         <button class="control-btn" type="button" data-solar="exit" title="Back to the galaxy map (Esc)">← Back to the universe</button>
         <div class="solar-title">
           <strong>Solar System</strong>
-          <span>Inside the Milky Way · planets where they are today</span>
+          <span class="solar-date"></span>
+        </div>
+        <div class="solar-tools">
+          <button class="control-btn small" type="button" data-solar="tour" title="Fly from the Sun out to the Kuiper Belt, stopping at each world">🚀 Grand tour</button>
+          <div class="solar-speed" role="group" aria-label="Time speed">
+            ${TIME_SPEEDS.map((s) => `<button type="button" data-speed="${s}" aria-pressed="${s === 1}" title="${s === 0 ? 'Pause time' : `One Earth year every ${EARTH_YEAR_SECONDS / s} s`}">${s === 0 ? '⏸' : `${s}×`}</button>`).join('')}
+          </div>
         </div>
       </div>
       <div class="solar-labels"></div>
-      <p class="solar-hint">Drag to orbit · scroll or pinch to zoom · tap a name to follow it</p>
-      <p class="solar-credit">Sizes and distances compressed to fit.
+      <p class="solar-hint">Drag to orbit · scroll or pinch to zoom · tap anything named to learn about it</p>
+      <p class="solar-credit">Sizes and distances compressed to fit — the Oort Cloud far more.
         Planet maps: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener noreferrer">Solar System Scope</a>, CC BY 4.0</p>
     `;
     this.labelRoot = this.root.querySelector('.solar-labels');
+    this.dateEl = this.root.querySelector('.solar-date');
+    this.tourBtn = this.root.querySelector('[data-solar="tour"]');
     this.root.querySelector('[data-solar="exit"]').addEventListener('click', () => this.onExit?.());
+    this.tourBtn.addEventListener('click', () => (this.tour ? this.stopTour() : this.startTour()));
+    this.speedBtns = [...this.root.querySelectorAll('[data-speed]')];
+    this.speedBtns.forEach((btn) => btn.addEventListener('click', () => this.setSpeed(Number(btn.dataset.speed))));
+
+    this.card = new BodyCard(this.root);
+    this.card.onClose = () => {
+      this.selected = null;
+      this.card.hide();
+    };
+    this.card.onFollow = () => {
+      if (!this.selected) return;
+      if (this.follow?.body === this.selected) {
+        this.follow = null;
+        this.card.setFollowing(false);
+      } else {
+        this.focusOn(this.selected);
+      }
+    };
     this.container.appendChild(this.root);
+  }
+
+  /** Tap to select, drag to orbit: only a tap that did not move picks a body. */
+  bindPointer() {
+    const el = this.renderer.domElement;
+    let down = null;
+    el.addEventListener('pointerdown', (e) => {
+      if (!this.active || !e.isPrimary) return;
+      // Any touch cuts the arrival short and hands over the controls.
+      if (this.approach) this.approach.t = 1;
+      this.stopTour();
+      down = { x: e.clientX, y: e.clientY };
+    });
+    el.addEventListener('pointerup', (e) => {
+      if (!this.active || !e.isPrimary || !down) return;
+      const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+      down = null;
+      if (moved > 6) return;
+      const rect = el.getBoundingClientRect();
+      const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      this.raycaster.setFromCamera(ndc, this.camera);
+      const hit = this.raycaster.intersectObjects(this.pickables, false)[0];
+      if (hit) this.select(hit.object.userData.body);
+    });
   }
 
   /** Builds everything once; later entries reuse it. */
@@ -259,20 +201,67 @@ export class SolarSystem {
 
   async build() {
     const loader = new THREE.TextureLoader();
-    const [sunMap, ...maps] = await Promise.all([
-      loadTexture(loader, 'sun.jpg'),
-      ...PLANETS.flatMap((p) => [loadTexture(loader, p.texture), loadTexture(loader, p.clouds, { data: true })])
+    const maps = new Map();
+    const colourFiles = ['sun.jpg', ...PLANETS.map((p) => p.texture), ...MOONS.map((m) => m.texture).filter(Boolean)];
+    const dataFiles = PLANETS.map((p) => p.clouds).filter(Boolean);
+    await Promise.all([
+      ...colourFiles.map(async (f) => maps.set(f, await loadTexture(loader, f))),
+      ...dataFiles.map(async (f) => maps.set(f, await loadTexture(loader, f, { data: true })))
     ]);
+    const pixelRatio = this.renderer.getPixelRatio();
 
-    // Rides with the camera, so the sky stays at infinity however far you zoom out.
-    this.stars = starfield();
-    this.scene.add(this.stars);
+    this.sky = createSky(pixelRatio);
+    this.scene.add(this.sky.group);
+    for (const item of this.sky.items) this.addBody({ ...item, followable: false });
+    this.dust = createDust(pixelRatio);
+    this.scene.add(this.dust.points);
+
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.09));
     this.scene.add(new THREE.PointLight(0xfff4e0, 3.2, 0, 0));
+    this.addSun(maps.get('sun.jpg'));
 
-    const sun = new THREE.Mesh(
+    for (const planet of PLANETS) {
+      const map = maps.get(planet.texture) ?? surfaceTexture(planet.name, null, planet.colour);
+      this.addPlanet(planet, map, planet.clouds ? maps.get(planet.clouds) : null);
+    }
+    for (const body of MINOR_BODIES) this.addMinor(body);
+    for (const moon of MOONS) this.addMoon(moon, moon.texture ? maps.get(moon.texture) : null);
+
+    const jupiter = PLANETS.find((p) => p.name === 'Jupiter');
+    this.belts = createBelts({
+      pixelRatio,
+      jupiterStart: (jupiter.L0 + jupiter.rate * J2000_CENTURIES) * DEG,
+      jupiterRate: (2 * Math.PI) / jupiter.period
+    });
+    this.scene.add(this.belts.points);
+    for (const region of this.belts.regions) {
+      this.addBody({ name: region.name, kind: 'belt', info: region.info, anchor: region.anchor, followable: true, viewDistance: 70 });
+    }
+  }
+
+  addBody(body) {
+    const label = document.createElement('button');
+    label.type = 'button';
+    label.className = `solar-label kind-${body.kind}`;
+    label.textContent = body.name;
+    label.style.visibility = 'hidden';
+    label.addEventListener('click', () => this.select(body));
+    this.labelRoot.appendChild(label);
+    body.label = label;
+    body.shown = false;
+    if (body.mesh) {
+      body.mesh.userData.body = body;
+      this.pickables.push(body.mesh);
+    }
+    this.bodies.push(body);
+    this.byName.set(body.name, body);
+    return body;
+  }
+
+  addSun(map) {
+    const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(SUN_RADIUS, 64, 32),
-      new THREE.MeshBasicMaterial(sunMap ? { map: sunMap } : { color: 0xffc350 })
+      new THREE.MeshBasicMaterial(map ? { map } : { color: 0xffc350 })
     );
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({
       map: glowTexture('rgba(255,236,190,0.95)', 'rgba(255,170,60,0.28)'),
@@ -280,19 +269,16 @@ export class SolarSystem {
       depthWrite: false
     }));
     glow.scale.setScalar(SUN_RADIUS * 7);
-    sun.add(glow);
-    this.scene.add(sun);
-    this.addBody({ name: 'Sun', mesh: sun, spin: (2 * Math.PI) / spinSeconds(25.4), radius: SUN_RADIUS });
-
-    const T = centuriesSinceJ2000();
-    PLANETS.forEach((planet, i) => {
-      const map = maps[i * 2] ?? proceduralSurface(planet);
-      const clouds = maps[i * 2 + 1];
-      this.addPlanet(planet, map, clouds, T);
+    mesh.add(glow);
+    this.scene.add(mesh);
+    const spin = (2 * Math.PI) / spinSeconds(25.4);
+    this.addBody({
+      name: 'Sun', kind: 'sun', info: SUN.info, mesh, radius: SUN_RADIUS, followable: true, viewDistance: 150,
+      tick: (dt) => { mesh.rotation.y += spin * dt; }
     });
   }
 
-  addPlanet(planet, map, clouds, T) {
+  addPlanet(planet, map, clouds) {
     const radius = displayRadius(planet.radius);
     const orbit = displayOrbit(planet.au);
 
@@ -303,17 +289,7 @@ export class SolarSystem {
     plane.rotation.x = planet.incl * DEG;
     pivot.add(plane);
     this.scene.add(pivot);
-
-    const ring = new THREE.LineLoop(
-      new THREE.BufferGeometry().setFromPoints(
-        Array.from({ length: 256 }, (_, k) => {
-          const a = (k / 256) * Math.PI * 2;
-          return new THREE.Vector3(Math.cos(a) * orbit, 0, -Math.sin(a) * orbit);
-        })
-      ),
-      new THREE.LineBasicMaterial({ color: 0x4a6a9a, transparent: true, opacity: 0.28 })
-    );
-    plane.add(ring);
+    plane.add(orbitLine(circle(orbit), 0x4a6a9a, 0.28));
 
     const carrier = new THREE.Object3D();
     plane.add(carrier);
@@ -334,92 +310,291 @@ export class SolarSystem {
         new THREE.MeshStandardMaterial({ alphaMap: clouds, transparent: true, depthWrite: false, roughness: 1 })
       ));
     }
+    if (planet.rings) tilt.add(this.saturnRings(radius));
 
-    if (planet.rings) {
-      const inner = radius * 1.24;
-      const outer = radius * 2.27;
-      const geometry = new THREE.RingGeometry(inner, outer, 160, 1);
-      // RingGeometry maps UVs as a square; the ring texture is a radial strip.
-      const pos = geometry.attributes.position;
-      const uv = geometry.attributes.uv;
-      for (let k = 0; k < pos.count; k++) {
-        const d = Math.hypot(pos.getX(k), pos.getY(k));
-        uv.setXY(k, (d - inner) / (outer - inner), 0.5);
-      }
-      // Unlit: the Sun grazes the ring plane, and a lit ring came out nearly
-      // black, where the real one is brighter than the planet.
-      const rings = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-        map: saturnRingTexture(),
-        color: 0xd8d0c0,
-        transparent: true,
-        side: THREE.DoubleSide,
-        depthWrite: false
-      }));
-      rings.rotation.x = -Math.PI / 2; // into the equatorial plane
-      tilt.add(rings);
-    }
-
-    const angle = (planet.L0 + planet.rate * T - planet.node) * DEG;
+    const angle0 = (planet.L0 + planet.rate * J2000_CENTURIES - planet.node) * DEG;
+    const spin = (2 * Math.PI) / spinSeconds(planet.day);
     this.addBody({
       name: planet.name,
-      mesh,
-      carrier,
-      orbit,
-      radius,
-      angle,
-      orbitSpeed: (2 * Math.PI) / (planet.period * EARTH_YEAR_SECONDS),
-      spin: (2 * Math.PI) / spinSeconds(planet.day)
+      kind: 'planet',
+      info: { ...planet.info, rows: [['From the Sun', `${planet.au} AU · light takes ${lightTime(planet.au)}`], ...planet.info.rows] },
+      mesh, tilt, carrier, radius, radiusKm: planet.radiusKm, followable: true, viewDistance: radius * 9 + 3,
+      tick: (dt) => {
+        const a = angle0 + (2 * Math.PI * this.years) / planet.period;
+        carrier.position.set(Math.cos(a) * orbit, 0, -Math.sin(a) * orbit);
+        mesh.rotation.y += spin * dt;
+      }
     });
   }
 
-  addBody(body) {
-    const label = document.createElement('button');
-    label.type = 'button';
-    label.className = 'solar-label';
-    label.textContent = body.name;
-    label.addEventListener('click', () => this.focusOn(body));
-    this.labelRoot.appendChild(label);
-    body.label = label;
-    this.bodies.push(body);
-    this.placeBody(body);
+  saturnRings(radius) {
+    const inner = radius * 1.24;
+    const outer = radius * 2.27;
+    const geometry = new THREE.RingGeometry(inner, outer, 160, 1);
+    // RingGeometry maps UVs as a square; the ring texture is a radial strip.
+    const pos = geometry.attributes.position;
+    const uv = geometry.attributes.uv;
+    for (let k = 0; k < pos.count; k++) {
+      const d = Math.hypot(pos.getX(k), pos.getY(k));
+      uv.setXY(k, (d - inner) / (outer - inner), 0.5);
+    }
+    // Unlit: the Sun grazes the ring plane, and a lit ring came out nearly
+    // black, where the real one is brighter than the planet.
+    const rings = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+      map: saturnRingTexture(),
+      color: 0xd8d0c0,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }));
+    rings.rotation.x = -Math.PI / 2; // into the equatorial plane
+    return rings;
   }
 
-  placeBody(body) {
-    if (!body.carrier) return;
-    body.carrier.position.set(Math.cos(body.angle) * body.orbit, 0, -Math.sin(body.angle) * body.orbit);
+  /** A dwarf planet or comet on its real eccentric orbit, solved from Kepler's equation each frame. */
+  addMinor(el) {
+    const radius = kmToDisplayRadius(el.radiusKm);
+    const pivot = new THREE.Object3D();
+    pivot.rotation.y = el.node * DEG;
+    const plane = new THREE.Object3D();
+    plane.rotation.x = el.i * DEG;
+    pivot.add(plane);
+    this.scene.add(pivot);
+    const path = orbitSamples(el).map(({ r, u }) => {
+      const d = displayOrbit(r);
+      return new THREE.Vector3(Math.cos(u) * d, 0, -Math.sin(u) * d);
+    });
+    plane.add(orbitLine(path, el.kind === 'comet' ? 0x5fb4c9 : 0x8a7a9a, el.kind === 'comet' ? 0.3 : 0.22));
+
+    const carrier = new THREE.Object3D();
+    plane.add(carrier);
+    const tilt = new THREE.Object3D();
+    tilt.rotation.z = el.tilt * DEG;
+    carrier.add(tilt);
+    const map = surfaceTexture(el.name, el.surface);
+    const mesh = new THREE.Mesh(
+      el.lumpy ? lumpyGeometry(radius, el.name.length * 131) : new THREE.SphereGeometry(radius, 40, 20),
+      new THREE.MeshStandardMaterial({ map, roughness: 1, metalness: 0 })
+    );
+    if (el.stretch) mesh.scale.set(...el.stretch);
+    tilt.add(mesh);
+
+    const spin = (2 * Math.PI) / spinSeconds(el.day);
+    const body = this.addBody({
+      name: el.name,
+      kind: el.kind,
+      info: el.info,
+      mesh, tilt, carrier, radius, radiusKm: el.radiusKm, followable: true,
+      viewDistance: el.kind === 'comet' ? 7 : radius * 12 + 2,
+      r: el.a,
+      tick: (dt) => {
+        const { r, u } = orbitalPosition(el, START_YEAR + this.years);
+        const d = displayOrbit(r);
+        carrier.position.set(Math.cos(u) * d, 0, -Math.sin(u) * d);
+        body.r = r;
+        mesh.rotation.y += spin * dt;
+      }
+    });
+    if (el.kind === 'comet') this.addCometTail(body);
   }
 
-  /** Swings the camera to a body and then rides along with it. */
-  focusOn(body) {
-    const at = body.mesh.getWorldPosition(new THREE.Vector3());
-    const away = this.camera.position.clone().sub(this.controls.target).normalize();
-    const distance = body.name === 'Sun' ? 150 : body.radius * 9 + 3;
-    this.follow = {
-      body,
-      t: 0,
-      fromCam: this.camera.position.clone(),
-      fromTarget: this.controls.target.clone(),
-      offset: away.multiplyScalar(distance),
-      last: at
+  /**
+   * Coma and tails, grown from the comet's distance to the Sun: nothing out
+   * past Jupiter, a long blue ion tail and a curved dust tail near perihelion,
+   * both pointing away from the Sun.
+   */
+  addCometTail(body) {
+    const COUNT = 1400;
+    const rand = mulberry32(1986);
+    const seeds = Array.from({ length: COUNT }, (_, i) => ({
+      ion: i % 2 === 0,
+      t: rand() ** 0.7,
+      jitter: new THREE.Vector3(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1).multiplyScalar(0.5)
+    }));
+    const positions = new Float32Array(COUNT * 3);
+    const colors = new Float32Array(COUNT * 3);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const soft = glowTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0.3)', 64);
+    const tail = new THREE.Points(geometry, new THREE.PointsMaterial({
+      size: 0.1, map: soft, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+    }));
+    tail.frustumCulled = false;
+    this.scene.add(tail);
+    const coma = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture('rgba(220,245,255,0.9)', 'rgba(120,200,230,0.25)', 128),
+      blending: THREE.AdditiveBlending, depthWrite: false, transparent: true
+    }));
+    body.mesh.add(coma);
+
+    const nucleus = new THREE.Vector3();
+    const last = new THREE.Vector3();
+    const away = new THREE.Vector3();
+    const drift = new THREE.Vector3();
+    const tick = body.tick;
+    body.tick = (dt) => {
+      tick(dt);
+      body.mesh.getWorldPosition(nucleus);
+      drift.copy(nucleus).sub(last);
+      last.copy(nucleus);
+      const activity = THREE.MathUtils.clamp((5.5 - body.r) / 5, 0, 1);
+      coma.visible = activity > 0;
+      coma.scale.setScalar(0.4 + activity * 2.6);
+      coma.material.opacity = activity;
+      tail.visible = activity > 0;
+      if (!tail.visible) return;
+
+      away.copy(nucleus).normalize();
+      if (drift.lengthSq() > 1e-12) drift.normalize();
+      const ionLength = 2 + 20 * activity ** 1.3;
+      const dustLength = 1.5 + 13 * activity ** 1.3;
+      seeds.forEach(({ ion, t, jitter }, i) => {
+        const p = this._p.copy(nucleus);
+        if (ion) {
+          p.addScaledVector(away, t * ionLength).addScaledVector(jitter, (0.08 + t * 0.6) * activity);
+          colors.set([0.45 * (1 - t) * activity, 0.65 * (1 - t) * activity, 1.0 * (1 - t) * activity], i * 3);
+        } else {
+          // The dust lags behind the comet's motion, so its tail curves.
+          p.addScaledVector(away, t * dustLength).addScaledVector(drift, -t * t * dustLength * 0.45)
+            .addScaledVector(jitter, (0.15 + t * 1.4) * activity);
+          colors.set([0.9 * (1 - t) * activity, 0.84 * (1 - t) * activity, 0.7 * (1 - t) * activity], i * 3);
+        }
+        positions.set([p.x, p.y, p.z], i * 3);
+      });
+      geometry.attributes.position.needsUpdate = true;
+      geometry.attributes.color.needsUpdate = true;
     };
   }
 
+  /** A moon on its parent's equator (Earth's Moon: near the ecliptic), tidally locked. */
+  addMoon(m, photo) {
+    const parent = this.byName.get(m.parent);
+    if (!parent) return;
+    const radius = kmToDisplayRadius(m.radiusKm);
+    const orbit = moonOrbitRadius(parent.radius, m.aKm / parent.radiusKm);
+    const rand = mulberry32(m.name.length * 977 + m.aKm);
+
+    const node = new THREE.Object3D();
+    node.rotation.y = rand() * Math.PI * 2;
+    const plane = new THREE.Object3D();
+    plane.rotation.x = m.incl * DEG;
+    node.add(plane);
+    (m.plane === 'ecliptic' ? parent.carrier : parent.tilt).add(node);
+    plane.add(orbitLine(circle(orbit, 128), 0x7890b0, 0.16));
+
+    const pivot = new THREE.Object3D();
+    plane.add(pivot);
+    const mesh = new THREE.Mesh(
+      m.lumpy ? lumpyGeometry(radius, m.aKm) : new THREE.SphereGeometry(radius, 32, 16),
+      new THREE.MeshStandardMaterial({ map: photo ?? surfaceTexture(m.name, m.surface), roughness: 1, metalness: 0 })
+    );
+    mesh.position.x = orbit;
+    pivot.add(mesh);
+
+    const angle0 = rand() * Math.PI * 2;
+    const period = moonPeriodSeconds(m.period);
+    this.addBody({
+      name: m.name,
+      kind: 'moon',
+      info: m.info,
+      mesh, radius, parent, followable: true, viewDistance: radius * 10 + 1.2,
+      // Turning the pivot carries the moon round with the same face inward.
+      tick: () => { pivot.rotation.y = angle0 + (2 * Math.PI * this.moonClock) / period; }
+    });
+  }
+
+  /** Where a body is now: a mesh, a region's anchor, or a direction on the sky. */
+  positionOf(body, out) {
+    if (body.anchor) return body.anchor(this.years, out);
+    if (body.direction) return out.copy(this.camera.position).addScaledVector(body.direction, SKY_RADIUS);
+    return body.mesh.getWorldPosition(out);
+  }
+
+  select(body) {
+    this.selected = body;
+    if (body.followable) this.focusOn(body);
+    this.card.show(body, { following: this.follow?.body === body });
+  }
+
+  /** Flies to a body, then rides along with it. */
+  focusOn(body) {
+    const at = this.positionOf(body, new THREE.Vector3());
+    const away = this.camera.position.clone().sub(this.controls.target);
+    if (away.lengthSq() < 1e-9) away.set(0, 0.4, 1);
+    away.normalize().multiplyScalar(body.viewDistance);
+    const to = at.clone().add(away);
+    this.follow = {
+      body,
+      t: 0,
+      // Long hops take longer, and the stars streak past on the way.
+      duration: THREE.MathUtils.clamp(1.3 + this.camera.position.distanceTo(to) / 90, 1.3, 4.5),
+      fromCam: this.camera.position.clone(),
+      fromTarget: this.controls.target.clone(),
+      offset: away,
+      last: at
+    };
+    if (this.selected === body) this.card.setFollowing(true);
+  }
+
+  startTour() {
+    this.tour = { index: -1, wait: 0 };
+    this.tourBtn.textContent = '■ Stop tour';
+    this.nextStop();
+  }
+
+  nextStop() {
+    const tour = this.tour;
+    tour.index += 1;
+    tour.wait = 0;
+    if (tour.index >= TOUR.length) {
+      this.stopTour();
+      this.select(this.byName.get('Sun'));
+      return;
+    }
+    const body = this.byName.get(TOUR[tour.index]);
+    if (body) this.select(body);
+    else this.nextStop();
+  }
+
+  stopTour() {
+    if (!this.tour) return;
+    this.tour = null;
+    this.tourBtn.textContent = '🚀 Grand tour';
+  }
+
+  setSpeed(speed) {
+    this.timeScale = speed;
+    this.speedBtns.forEach((btn) => btn.setAttribute('aria-pressed', String(Number(btn.dataset.speed) === speed)));
+    this.dateClock = 0;
+  }
+
   enter() {
+    this.active = true;
     this.root.hidden = false;
-    this.controls.enabled = true;
     this.follow = null;
-    // A portrait screen is narrow: start further back so the outer planets fit.
+    this.stopTour();
+    // Arrive from outside the Oort Cloud and fall inward to the planets. A
+    // portrait screen is narrow, so the final view there stands further back.
     this.renderer.getSize(this.size);
     const back = this.size.x < this.size.y ? 1.9 : 1;
-    this.camera.position.set(0, 70 * back, 150 * back);
+    this.approach = { t: 0, from: APPROACH_FROM.clone(), to: new THREE.Vector3(0, 70 * back, 150 * back) };
+    this.camera.position.copy(APPROACH_FROM);
     this.controls.target.set(0, 0, 0);
-    this.controls.update();
+    this.camera.lookAt(0, 0, 0);
+    this.lastCam.copy(this.camera.position);
+    this.controls.enabled = false;
   }
 
   exit() {
+    this.active = false;
     this.root.hidden = true;
     this.controls.enabled = false;
     this.follow = null;
+    this.approach = null;
+    this.stopTour();
+    this.selected = null;
+    this.card.hide();
   }
 
   update(dt) {
@@ -430,28 +605,53 @@ export class SolarSystem {
       this.camera.updateProjectionMatrix();
     }
 
-    for (const body of this.bodies) {
-      body.mesh.rotation.y += body.spin * dt;
-      if (body.carrier) {
-        body.angle += body.orbitSpeed * dt;
-        this.placeBody(body);
-      }
+    // Time: planets and belts run on simulated years; moons on their own
+    // compressed clock, capped so fast time does not turn them into a blur.
+    this.years += (dt * this.timeScale) / EARTH_YEAR_SECONDS;
+    this.moonClock += dt * Math.min(this.timeScale, 3);
+    const spinDt = this.timeScale > 0 ? dt : 0;
+    for (const body of this.bodies) body.tick?.(spinDt);
+    this.belts.material.uniforms.uYears.value = this.years;
+    this.belts.material.uniforms.uPixelRatio.value = this.renderer.getPixelRatio();
+
+    if (this.approach) {
+      this.updateApproach(dt);
+    } else {
+      this.updateFollow(dt);
+      this.updateTour(dt);
+      this.controls.update();
     }
 
-    this.updateFollow(dt);
-    this.controls.update();
-    this.stars?.position.copy(this.camera.position);
+    this.updateWarp(dt);
+    this.sky.group.position.copy(this.camera.position);
+    this.dust.material.uniforms.uCam.value.copy(this.camera.position);
     this.renderer.render(this.scene, this.camera);
     this.layoutLabels();
+    this.updateDate(dt);
+  }
+
+  updateApproach(dt) {
+    const a = this.approach;
+    a.t = Math.min(1, a.t + dt / APPROACH_SECONDS);
+    const e = 1 - (1 - a.t) ** 3;
+    this.camera.position.lerpVectors(a.from, a.to, e);
+    // A banked arc rather than a straight line.
+    this.camera.position.x += Math.sin(Math.PI * e) * 260;
+    this.controls.target.set(0, 0, 0);
+    this.camera.lookAt(0, 0, 0);
+    if (a.t >= 1) {
+      this.approach = null;
+      this.controls.enabled = true;
+    }
   }
 
   updateFollow(dt) {
     const follow = this.follow;
     if (!follow) return;
-    const at = follow.body.mesh.getWorldPosition(this._p);
+    const at = this.positionOf(follow.body, this._p);
 
     if (follow.t < 1) {
-      follow.t = Math.min(1, follow.t + dt / 1.4);
+      follow.t = Math.min(1, follow.t + dt / follow.duration);
       const e = follow.t < 0.5 ? 4 * follow.t ** 3 : 1 - (-2 * follow.t + 2) ** 3 / 2;
       this.controls.target.lerpVectors(follow.fromTarget, at, e);
       this.camera.position.lerpVectors(follow.fromCam, this._q.copy(at).add(follow.offset), e);
@@ -464,20 +664,80 @@ export class SolarSystem {
     follow.last.copy(at);
   }
 
+  updateTour(dt) {
+    if (!this.tour || (this.follow && this.follow.t < 1)) return;
+    this.tour.wait += dt;
+    if (this.tour.wait >= TOUR_DWELL) this.nextStop();
+  }
+
+  /**
+   * How fast the camera is really moving decides how hard the stars streak,
+   * and where it is heading decides which way.
+   */
+  updateWarp(dt) {
+    const cam = this.camera.position;
+    const delta = this._a.copy(cam).sub(this.lastCam);
+    const speed = delta.length() / Math.max(dt, 1e-3);
+    this.lastCam.copy(cam);
+    const target = THREE.MathUtils.clamp((speed - 12) / 380, 0, 1);
+    this.warp += (target - this.warp) * (1 - Math.exp(-dt * 6));
+
+    let sign = 1;
+    if (speed > 1e-3) {
+      delta.normalize();
+      const forward = this.camera.getWorldDirection(this._q);
+      sign = delta.dot(forward) >= 0 ? 1 : -1;
+      const p = this._q.copy(cam).addScaledVector(delta, sign * 50).project(this.camera);
+      this.focusNdc.set(THREE.MathUtils.clamp(p.x, -30, 30), THREE.MathUtils.clamp(p.y, -30, 30));
+    }
+    const pixelRatio = this.renderer.getPixelRatio();
+    setWarp(this.sky.material, this.warp, this.focusNdc, sign, pixelRatio);
+    setWarp(this.dust.material, this.warp, this.focusNdc, sign, pixelRatio);
+  }
+
+  /** Labels for everything in view, highest priority first, none overlapping. */
   layoutLabels() {
     const { x: width, y: height } = this.size;
+    const cam = this.camera.position;
+    const candidates = [];
+
     for (const body of this.bodies) {
-      const p = body.mesh.getWorldPosition(this._p);
-      // Lift the label to the top of the body on screen.
-      const up = this._q.copy(p).addScaledVector(this.camera.up, body.radius * 1.25).project(this.camera);
-      if (up.z > 1 || up.z < -1) {
-        body.label.style.visibility = 'hidden';
-        continue;
-      }
-      body.label.style.visibility = 'visible';
-      body.label.classList.toggle('following', this.follow?.body === body);
-      body.label.style.transform =
-        `translate3d(${Math.round((up.x * 0.5 + 0.5) * width)}px, ${Math.round((-up.y * 0.5 + 0.5) * height)}px, 0) translate(-50%, -100%)`;
+      body.placed = false;
+      // A moon's label only shows once you are close to its planet.
+      if (body.parent && cam.distanceTo(body.parent.mesh.getWorldPosition(this._a)) > body.parent.radius * 14 + 4) continue;
+      const p = this.positionOf(body, this._p);
+      if (body.radius) p.addScaledVector(this.camera.up, body.radius * 1.2);
+      p.project(this.camera);
+      if (p.z > 1 || p.z < -1 || Math.abs(p.x) > 1.05 || Math.abs(p.y) > 1.05) continue;
+      const focused = body === this.selected || body === this.follow?.body;
+      candidates.push({ body, x: (p.x * 0.5 + 0.5) * width, y: (-p.y * 0.5 + 0.5) * height, rank: PRIORITY[body.kind] + (focused ? 1000 : 0) });
     }
+
+    candidates.sort((a, b) => b.rank - a.rank);
+    const taken = [];
+    for (const { body, x, y } of candidates) {
+      const half = (body.name.length * 6.4 + 20) / 2;
+      const box = { l: x - half, r: x + half, t: y - 22, b: y };
+      if (taken.some((o) => box.l < o.r && box.r > o.l && box.t < o.b && box.b > o.t)) continue;
+      taken.push(box);
+      body.placed = true;
+      body.label.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0) translate(-50%, -100%)`;
+      body.label.classList.toggle('following', body === this.follow?.body || body === this.selected);
+    }
+
+    for (const body of this.bodies) {
+      if (body.shown === body.placed) continue;
+      body.shown = body.placed;
+      body.label.style.visibility = body.placed ? 'visible' : 'hidden';
+    }
+  }
+
+  updateDate(dt) {
+    this.dateClock -= dt;
+    if (this.dateClock > 0) return;
+    this.dateClock = 0.25;
+    const date = new Date((START_YEAR + this.years - 1970) * MS_PER_YEAR);
+    const speed = this.timeScale === 0 ? 'paused' : `1 year every ${EARTH_YEAR_SECONDS / this.timeScale} s`;
+    this.dateEl.textContent = `${Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)} · ${speed}`;
   }
 }
