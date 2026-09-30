@@ -97,6 +97,24 @@ function start() {
     }
   };
 
+  // 3e. The space game, from the HUD or the Solar System's toolbar. Loaded on
+  //     first use; it takes over the Solar System while it runs.
+  let game = null;
+  const launchGame = async () => {
+    arMode.exit();
+    try {
+      const { GameMode } = await import('./game/GameMode.js');
+      game ??= new GameMode({ container: appContainer, scene, portal, namedLayer });
+      window.__SDSS_APP__.game = game;
+      await game.open();
+    } catch (err) {
+      console.error(err);
+      notify(`Could not start the game: ${err.message}`, { error: true });
+    }
+  };
+  hud.onLaunchGame = launchGame;
+  portal.onLaunchGame = launchGame;
+
   hud.onCatalogLoaded = (loaded) => {
     namedLayer.setDataset(loaded);
     window.__SDSS_APP__.catalog = loaded; // keep the debug handle on the live catalog
@@ -133,7 +151,9 @@ function start() {
     const deltaTime = Math.min(deltaMs * 0.001, 0.1); // Clamp max delta to 100ms
 
     try {
-      if (portal.ownsFrame) {
+      if (game?.update(deltaTime)) {
+        // The game has the Solar System: it stepped and drew the frame itself.
+      } else if (portal.ownsFrame) {
         // Inside the Solar System or the wormhole: the galaxy map is paused, not drawn.
         portal.update(deltaTime);
       } else {

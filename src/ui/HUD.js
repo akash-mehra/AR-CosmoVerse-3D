@@ -96,6 +96,9 @@ export class HUD {
           <button class="landmark-btn ar-btn" id="btn-enter-ar" title="View the map through your device camera">
             <span class="icon">📱</span> AR View
           </button>
+          <button class="landmark-btn launch-btn" id="btn-launch-game" type="button" title="Take off from Earth and fly the Solar System">
+            <span class="icon">🚀</span> Launch spaceship
+          </button>
         </nav>
         <div class="search-panel" id="search-panel" hidden>
           <input type="search" id="search-input" class="glass-input search-input" placeholder="Name or catalogue ID — Milky Way, M31, Coma, 3C 273…"
@@ -335,6 +338,9 @@ export class HUD {
 
     // 10. AR mode
     $('btn-enter-ar').addEventListener('click', () => this.onEnterAR?.());
+
+    // 10b. The space game
+    $('btn-launch-game').addEventListener('click', () => this.onLaunchGame?.());
 
     // 11. CSV import
     this.bindCsvDialog();
@@ -643,7 +649,7 @@ export class HUD {
     // A single click is left to the named-object layer, which selects labels.
     window.addEventListener('dblclick', e => {
       if (e.target !== this.scene.renderer.domElement) return;
-      if (this.container.matches('.ar-active, .solar-active, .warp-active')) return;
+      if (this.container.matches('.ar-active, .solar-active, .warp-active, .game-active')) return;
       e.preventDefault();
       const direction = e.shiftKey || e.altKey ? 'out' : 'in';
       this.scene.zoomAtScreenPoint(e.clientX, e.clientY, direction);
@@ -667,9 +673,9 @@ export class HUD {
       if (e.target.closest?.('input, textarea, select, dialog')) return;
       // A focused button handles its own Space; toggling here as well undid it.
       if (e.key === ' ' && e.target.closest?.('button')) return;
-      // The HUD is hidden in AR, the wormhole and the Solar System, so its shortcuts would
+      // The HUD is hidden in AR, the wormhole, the Solar System and the game, so its shortcuts would
       // act on nothing visible.
-      if (this.container.matches('.ar-active, .solar-active, .warp-active')) return;
+      if (this.container.matches('.ar-active, .solar-active, .warp-active, .game-active')) return;
 
       const action = actions[e.key.toLowerCase()];
       if (!action) return;

@@ -39,7 +39,7 @@ void main() {
 }`;
 
 // Resonances with Jupiter clear these distances (AU) of asteroids.
-const KIRKWOOD_GAPS = [2.502, 2.825, 2.958, 3.279];
+export const KIRKWOOD_GAPS = [2.502, 2.825, 2.958, 3.279];
 
 /**
  * The asteroid belt with its Kirkwood gaps, Jupiter's Trojans, the Kuiper

@@ -150,7 +150,8 @@ export class SolarSystem {
           <span class="solar-date"></span>
         </div>
         <div class="solar-tools">
-          <button class="control-btn small" type="button" data-solar="tour" title="Fly from the Sun out to the Kuiper Belt, stopping at each world">🚀 Grand tour</button>
+          <button class="control-btn small" type="button" data-solar="launch" title="Take off from Earth in your own ship">🚀 Launch spaceship</button>
+          <button class="control-btn small" type="button" data-solar="tour" title="Fly from the Sun out to the Kuiper Belt, stopping at each world">🧭 Grand tour</button>
           <div class="solar-speed" role="group" aria-label="Time speed">
             ${TIME_SPEEDS.map((s) => `<button type="button" data-speed="${s}" aria-pressed="${s === 1}" title="${s === 0 ? 'Pause time' : `One Earth year every ${EARTH_YEAR_SECONDS / s} s`}">${s === 0 ? '⏸' : `${s}×`}</button>`).join('')}
           </div>
@@ -167,6 +168,7 @@ export class SolarSystem {
     this.dateEl = this.root.querySelector('.solar-date');
     this.tourBtn = this.root.querySelector('[data-solar="tour"]');
     this.root.querySelector('[data-solar="exit"]').addEventListener('click', () => this.onExit?.());
+    this.root.querySelector('[data-solar="launch"]').addEventListener('click', () => this.onLaunchGame?.());
     this.tourBtn.addEventListener('click', () => (this.tour ? this.stopTour() : this.startTour()));
     this.speedBtns = [...this.root.querySelectorAll('[data-speed]')];
     this.speedBtns.forEach((btn) => btn.addEventListener('click', () => this.setSpeed(Number(btn.dataset.speed))));
@@ -194,7 +196,8 @@ export class SolarSystem {
     const el = this.renderer.domElement;
     let down = null;
     el.addEventListener('pointerdown', (e) => {
-      if (!this.active || !e.isPrimary) return;
+      // The game flies the ship with the pointer, and has the view.
+      if (!this.active || !e.isPrimary || this.container.classList.contains('game-active')) return;
       // Any touch cuts the arrival short and hands over the controls.
       if (this.approach) this.approach.t = 1;
       this.stopTour();
@@ -326,7 +329,8 @@ export class SolarSystem {
     tilt.rotation.z = planet.tilt * DEG;
     carrier.add(tilt);
 
-    const segments = radius > 1 ? 64 : 40;
+    // Fine enough to stand on: the game lands on them, and coarser facets kink the horizon.
+    const segments = 128;
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(radius, segments, segments / 2),
       new THREE.MeshStandardMaterial({ map, roughness: 1, metalness: 0 })
@@ -602,7 +606,7 @@ export class SolarSystem {
   stopTour() {
     if (!this.tour) return;
     this.tour = null;
-    this.tourBtn.textContent = '🚀 Grand tour';
+    this.tourBtn.textContent = '🧭 Grand tour';
   }
 
   setSpeed(speed) {
@@ -674,7 +678,8 @@ export class SolarSystem {
     const timeScale = this.earth?.owns ? 0 : this.timeScale;
     this.years += (dt * timeScale) / EARTH_YEAR_SECONDS;
     this.moonClock += dt * Math.min(timeScale, 3);
-    const spinDt = timeScale > 0 ? dt : 0;
+    // Worlds turn at display speed from 1× up; slower time (the game's) slows them too.
+    const spinDt = timeScale > 0 ? dt * Math.min(timeScale, 1) : 0;
     for (const body of this.bodies) body.tick?.(spinDt);
     this.maps.update(this.camera, this.size.y);
     this.belts.material.uniforms.uYears.value = this.years;

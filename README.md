@@ -64,6 +64,9 @@
 - 🌍 **Down to Earth**
   Tap Earth in the Solar System and keep zooming: it becomes the real, true-scale planet, and NASA satellite imagery sharpens all the way down to 250 km, where you can make out rivers and lakes (~500 m a pixel). City lights come on across the night side. Time holds while you are down there; zoom back out and the planets move again.
 
+- 🚀 **Launch your spaceship**
+  **Launch spaceship** (in the header, or the Solar System's toolbar) asks whether you fly with on-screen controls or the keyboard, then counts down from ten while the view closes in from wherever you were to your ship on a launch pad on Earth, measuring the view in ship lengths as it goes — Earth is 92 ship lengths across. The game's resources load during the countdown, and you can also download the HD planet maps then. Lift off and fly the real Solar System: every world pulls on the ship, a line shows where gravity will carry it, the asteroid belt is thousands of rocks at your scale that cost hull (and score triple), and you can land on any world with a surface. Mind the Sun.
+
 - 📱 **Camera Passthrough AR**
   View the map through your device camera. The survey floats as a fixed object in the room — move the phone to look around it, pinch to change its apparent size, and tap **Recentre** to bring it back in front of you. **Fly to object** on a label's card re-centres the AR map on that object. Needs a secure context (HTTPS) and a motion sensor; without a gyroscope it falls back to drag-to-look over the live feed.
 
@@ -178,6 +181,18 @@ the browser talks to it directly with no proxy.
 | **`[/]`** | Search by name |
 | **`[Esc]`** | Leave the Solar System |
 
+In the game:
+
+| Keyboard | On-screen | Action |
+| :--- | :--- | :--- |
+| **`W`** / **`S`** | **Thrust** / **Rev** | Thrust forward / backward |
+| **`A`** / **`D`** | stick left / right | Turn |
+| **`↑`** / **`↓`** | stick up / down | Nose up / down |
+| **`Q`** / **`E`** (or **`←`** / **`→`**) | **⟲** / **⟳** | Roll |
+| **`Shift`** | **Boost** | Afterburner |
+| **`Space`** | **Brake** | Stop against the nearest world (hold it to hover) |
+| **`Esc`** / **`P`** | **⏸** | Pause (during the countdown `Esc` aborts) |
+
 Add `?debug` to the URL to show the gesture tuning numbers (reading gap, demanded and actual sky speed) under the hand preview.
 
 ---
@@ -200,6 +215,7 @@ CosmoVerse-3D/
 │   ├── data/                # Catalog sources
 │   │   ├── sdssGenerator.js # Synthetic SDSS DR18 generator + CSV import + buildCatalog()
 │   │   └── simbadSource.js  # Live SIMBAD TAP (ADQL) client
+│   ├── game/                # The space game: launch, flight, asteroids, HUD
 │   ├── rendering/           # Three.js scene, camera damping & GLSL shaders
 │   │   └── shaders/         # galaxy.vert & galaxy.frag
 │   ├── ui/                  # HUD, named-object labels & detail card, notices
