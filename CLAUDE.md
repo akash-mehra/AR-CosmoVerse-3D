@@ -52,6 +52,7 @@ unless `NODE_USE_ENV_PROXY=1` — `npm run fetch:named` needs that prefix here.
 | 3e | Sharper maps near bodies: 4K in on approach, out on leaving, phones capped | Done: painted → 2K → 4K by size on screen, released on leaving; phones stop at 2K |
 | 3f | Optional HD download: prompt with the real size, map cache, cache-first loading | Done: offered on entering the Solar System, 30.3 MB on desktop (2K + 4K), 7.0 MB on phones; no service worker |
 | 3g | Landing on Earth: true-scale Earth layer, GIBS / Blue Marble to region level, a dormant Google 3D Tiles slot | Done: follow Earth and zoom from orbit to 250 km on GIBS tiles (~490 m a pixel); Google slot empty |
+| 3h | Space game: launch from Earth and fly the Solar System, the asteroid belt at the ship's scale | Done: controller choice, countdown loading a resource pack, gravity wells, rocks, landings, heat, score; untested on a real phone |
 | 4 | Visual & UX polish: shaders, mobile point budget, AR-native HUD | Not started |
 
 **Phase 3a notes.** The Milky Way was missing — only a 1 Mpc "Earth" sphere at
@@ -174,12 +175,41 @@ versus free, phone-first versus desktop/VR, download budget, narration voice.
   two agree. `googleTiles()` is the slot and returns null; nothing is fetched
   from Google and no key is read.
 - **Still unplaced:** reaching the Solar System from AR (open since 3a). The
-  Earth layer is a third layer AR cannot reach; decide whether AR gets there
-  before Phase 4 or in it.
-- **Parked:** the spaceship (a chase camera suggested, not confirmed); the
-  tour; OpenStreetMap buildings, street view and a move to Cloudflare; the
-  open decisions (true or cinematic scale, guided or free, phone or
-  desktop/VR, narration voice).
+  Earth layer is a third layer AR cannot reach, and the game (3h) a fourth;
+  decide whether AR gets there before Phase 4 or in it.
+- **Parked:** the tour; OpenStreetMap buildings, street view and a move to
+  Cloudflare; the open decisions (true or cinematic scale, guided or free,
+  phone or desktop/VR, narration voice).
+
+**Phase 3h notes.** The owner asked for a space game: a "launch your
+spaceship" button, a choice of on-screen or keyboard controls, a 10…1
+countdown that scales everything to the ship, a launch, a resource pack
+downloaded meanwhile, asteroids that cost hull, a belt dense enough to be
+thrilling, and gravity and physics that feel real. **Launch spaceship** is in
+the map's HUD and the Solar System's toolbar. It asks how you fly (on-screen is
+recommended on a coarse pointer; the choice is remembered) and offers the HD
+maps (3f's cache; ticked unless the connection looks metered or they were
+declined). The count then flies the map home to the Sun, cuts at T-7.5 to high
+over Earth, and zooms on a log scale down to the ship on a pad on Earth's dawn
+side, the line under the count giving the view's width in ship lengths
+(L = 0.012 display units; Earth is 92 L across, and the HUD measures
+everything in L, since display units are compressed). The engines light at
+T-3, and time runs from there at 0.04× (a year in 750 s). The resource pack
+loads during the count: the Solar System (the count holds at 7 until it is
+in), gravity, the asteroid field and compiled shaders (holds at 1). A failure
+holds with the reason and Try again. The HD maps download alongside and never
+hold the launch. In flight:
+- **Thrust:** Newtonian, tapering at a cruise cap of 46 L/s (boost 133 L/s).
+- **Gravity:** every world is a well, and a coasting-path line turns red
+  before an impact.
+- **The belt:** 8,200 rocks (5,000 on phones), 1–30 L across, cost hull and
+  score triple.
+- **Landings:** on any solid world below 15 L/s.
+- **The Sun:** its heat, and its surface, which kills.
+- **Score:** 10 a second, near misses, first landings, and a best in
+  localStorage.
+
+No sound (YAGNI).
 
 **Phase 3 notes.** Modelled on the Moon Knight sky-turning shot the owner
 supplied: open palms raised, the celestial sphere swinging past a stationary
@@ -276,6 +306,14 @@ src/
   solar/belts.js             GPU Keplerian belts: asteroids, Trojans, Kuiper, Oort
   solar/textures.js          Procedural surfaces and sky sprites
   solar/BodyCard.js          The docked detail card
+  game/GameMode.js           The space game: launch flow, countdown, physics, camera, score
+  game/GameHUD.js            Its overlay: controller picker, countdown and pack, flight HUD, pause, game over
+  game/Ship.js               The procedural ship, its flight model and flames; the launch pad
+  game/AsteroidField.js      The belt at ship scale: instanced rocks on GPU orbits, sorted for the CPU
+  game/gravity.js            Every world's pull, compressed and reach-limited
+  game/controls.js           Keyboard and on-screen controls, reduced to one input
+  game/Particles.js          Pooled soft particles: exhaust, smoke, sparks, debris
+  game/tuning.js             Every number the game is tuned by
   controller/PlottingController.js  Progressive "plot one by one" engine
 public/textures/solar/       Planet maps (CC BY 4.0, see CREDITS.md there)
 public/data/stars/           Star field + named stars, from npm run fetch:stars
@@ -797,6 +835,59 @@ boundary that reports on the boot screen rather than leaving a black page.
   divides its sampling by the same factor, so the star keeps its width and only
   gains length. Additive blending piles stretched sprites up in the dense wedge,
   which is why alpha is scaled by `inversesqrt(widen)`.
+- **Once it has cut to Earth, the game draws every frame itself**
+  (`game.update` returns true, checked first in main's frame loop). Before the
+  cut the map or the portal draws as usual and the game only ticks its count.
+  It borrows the Solar System: `solar.step(dt, true)` (bodies move, the camera
+  does not), its own logic, then `solar.draw()`. `takeSolar` stands the Solar
+  System down (follow, tour, card, controls, Earth layer, time), and `exit`
+  puts back time, lens and controls and follows the nearest world.
+  `portal.enterDirect` is the cut from the map: `handToSolar` without the zoom.
+- **Physics substeps see each world where it was at that moment.** The Solar
+  System has already stepped to the frame's end, so `substep` samples gravity
+  and contact with every world carried back along its velocity (`lag` ≤ 0).
+  Without that, Earth moved a whole frame into the ship on its leading side at
+  liftoff, and the launch "crashed" for 11%.
+- **Particles move before the frame's spawn.** Updated after spawning, each new
+  exhaust puff jumped a frame's travel ahead, and the exhaust glowed in front
+  of the nose.
+- **A world's pull reaches 7 radii (the Sun's 3.2), fading out.** The worlds
+  ride rails at game time (Earth at 0.18 u/s) while the ship flies in real
+  seconds, and the Sun's full pull across these compressed distances dropped a
+  coasting ship into it in ~20 s. Surface gravity is the real one compressed,
+  0.35 × (g / g⊕)^0.5, so the order holds (Sun 1.85, Jupiter 0.56, Earth 0.35,
+  Moon 0.14 u/s²).
+- **Thrust caps and the brake are relative to the world pulling hardest**, so
+  you can stop beside a moving planet; between the worlds that world is the Sun.
+- **Spin scales with time below 1×** (`SolarSystem.step`: `min(timeScale, 1)`).
+  Nothing changed at 1× and up, but at the game's 0.04× Earth's surface would
+  have raced past a landed ship at 36 L/s.
+- **The pad, the launch smoke and a landed ship live in their world's frame.**
+  The pad and smoke are children of Earth's mesh. A landed ship is carried by
+  its world's matrix every frame, and its velocity is measured from that
+  carry, so it lifts off with the ground's real velocity.
+- **The rocks run the point belt's orbit formula on the GPU**
+  (`uYears = solar.years`); the CPU runs it, in double precision, only for
+  rocks near the ship. They are sorted by orbit radius, and a circular orbit
+  keeps a rock exactly that far from the Sun, so a binary search finds the
+  candidates. Collision sweeps the frame's whole path, so a fast ship cannot
+  skip a small rock between frames. Rocks under 6 L (radius) shatter and come
+  back 25–42 s later, clear of the ship; bigger ones bounce it.
+- **The HD download is one job for the whole page** (`saveMaps`, `isSaving` in
+  `hdMaps.js`). The game's and the offer's cannot overlap, the offer does not
+  reappear during either, and it recounts what is missing when Download is
+  pressed.
+- **`.game-active` stands the rest of the page down.** It hides the HUD, the
+  Solar System's panels and the portal button, and it silences label clicks,
+  HUD shortcuts, double-click zoom, the portal's Esc and the Solar System's
+  taps. The CC BY credit stays, as a thin line under the touch controls.
+- **Esc and P pause in either control mode.** That listener is GameMode's, not
+  KeyboardControls', and during the count Esc aborts. Flight keys are ignored
+  inside the game's dialogs, so Space and Enter still press their buttons.
+- **A portrait screen gets a taller lens in the game:** SOLAR_FOV / √aspect,
+  capped at 70°. At 45° the chase view put the ship under the touch controls.
+- **Planet spheres and atmospheres are 128 segments.** The game lands on them,
+  and at 40 the horizon kinked.
 
 ## Verifying UI changes
 
@@ -812,7 +903,7 @@ on an interval — `ARMode` only attaches its listener after `getUserMedia`
 resolves, so a single dispatch gets missed.
 
 The app exposes `window.__SDSS_APP__` (`scene`, `controller`, `hud`,
-`namedLayer`, `arMode`, `gestures`, `portal`, `catalog`), which is enough to place the camera, force
+`namedLayer`, `arMode`, `gestures`, `portal`, `catalog`, and `game` once launched), which is enough to place the camera, force
 the plot to complete (`controller.setInstantAll()`), widen the redshift filter,
 enter AR and assert on DOM state. `catalog` is kept pointing at the live catalog
 across swaps.
@@ -910,3 +1001,24 @@ all of them up front, and allow ~1.5s after moving the camera for OrbitControls
 damping to settle or the label set is still changing. A selection also opens the
 detail card over part of the screen, and `isInteractiveTarget` deliberately
 swallows clicks that land on it, so clear the selection between assertions.
+
+To test the game:
+- **Launch:** click `#btn-launch-game` (or `[data-solar="launch"]` in the
+  Solar System), then `.game-option[data-controls="keyboard"]`.
+- **Follow it:** wait on `game.state` (`countdown`, `liftoff`, `playing`,
+  `paused`, `destroyed`, `over`), with `game.phase` (`home`, `cut`,
+  `approach`, `pad`) and `game.count` for the countdown. SwiftShader takes
+  ~70 s over its 10 s, and draws ~1 frame a second with the rocks in.
+- **Try a mechanic:** place the ship between frames. Set `game.ship.position`
+  and `.velocity` relative to a world from `game.gravity.byName` (`position`,
+  `velocity`, `radius`) or a rock from `game.field` (`positionOf`,
+  `velocityOf`, `reach`). Then set `game.chaseReady = false` so the camera
+  snaps.
+- **Keyboard:** `page.keyboard.down` holds a key.
+- **On-screen controls:** need real touches through CDP
+  `Input.dispatchTouchEvent`; synthetic PointerEvents fail `setPointerCapture`.
+- **A failed pack:** swap `portal.ensureSolar` for a rejecting stub before
+  launching. The count holds at 7 with Try again.
+- **Timing:** the vite dev server force-reloads a page that was open across a
+  source edit, and a fetch in flight then logs "Failed to fetch" (named stars,
+  typically). Start a run after the edit, not during it.

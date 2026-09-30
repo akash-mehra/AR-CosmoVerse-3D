@@ -96,7 +96,9 @@ export class MilkyWayPortal {
     container.append(this.button, this.veil);
 
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.active && !e.target.closest?.('input, textarea, dialog')) this.exit();
+      // In the game Esc pauses; it is not a way out of the Solar System.
+      if (e.key !== 'Escape' || !this.active || this.container.classList.contains('game-active')) return;
+      if (!e.target.closest?.('input, textarea, dialog')) this.exit();
     });
   }
 
@@ -247,6 +249,23 @@ export class MilkyWayPortal {
     this.active = true;
   }
 
+  /** Straight into the Solar System at this view, with no zoom or wormhole: the game's cut from the map. */
+  enterDirect(position, target) {
+    const { camera, controls } = this.scene;
+    this.returnView = { position: camera.position.clone().setLength(RISE_MPC), target: new THREE.Vector3() };
+    this.scene.cameraFlight = null;
+    controls.enabled = false;
+    this.scene.cameraDriver = this.driveMap;
+    this.namedLayer.clearSelection();
+    this.namedLayer.suspended = true;
+    this.container.classList.add('solar-active');
+    this.button.hidden = true;
+    this.solar.camera.up.copy(UP);
+    this.solar.takeOver(position, target);
+    this.active = true;
+    this.band = 0;
+  }
+
   handToMap() {
     this.active = false;
     this.solar.exit();
@@ -364,6 +383,7 @@ export class MilkyWayPortal {
     if (!this.solar) {
       this.solar = new SolarSystem(this.scene.renderer, this.container, field);
       this.solar.onExit = () => this.exit();
+      this.solar.onLaunchGame = () => this.onLaunchGame?.();
     }
     await this.solar.load();
     // Compile its shaders during the trip rather than in its first frame, in

@@ -80,7 +80,7 @@ export function createAtmosphere(radius, { pressureMb, extentKm, radiusKm, veil 
     uSun: { value: new THREE.Vector3() }
   };
   const shell = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * (1 + thickness), 64, 32),
+    new THREE.SphereGeometry(radius * (1 + thickness), 128, 64),
     new THREE.ShaderMaterial({ uniforms, vertexShader: VERTEX, fragmentShader: FRAGMENT, transparent: true, depthWrite: false })
   );
   // Drawn after the body and its clouds.

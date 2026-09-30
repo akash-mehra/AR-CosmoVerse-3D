@@ -34,19 +34,51 @@ export async function savedUrl(url, bytes) {
   }
 }
 
-/** Where the browser says the connection is metered or slow, it says so. */
-function connectionNote() {
+// One download at a time, whether the offer or the game started it.
+let saving = false;
+
+export const isSaving = () => saving;
+
+/** Whether the browser says the connection is metered or slow. */
+export function isMetered() {
   const c = navigator.connection;
-  return c?.saveData || c?.type === 'cellular' || /2g|3g/.test(c?.effectiveType ?? '')
-    ? 'Your connection looks metered or slow: this uses data and may take a while.'
-    : 'Best on Wi-Fi.';
+  return !!(c?.saveData || c?.type === 'cellular' || /2g|3g/.test(c?.effectiveType ?? ''));
 }
 
-function declined() {
+function connectionNote() {
+  return isMetered() ? 'Your connection looks metered or slow: this uses data and may take a while.' : 'Best on Wi-Fi.';
+}
+
+export function hdDeclined() {
   try {
     return localStorage.getItem(DECLINED_KEY) === 'no';
   } catch {
     return false;
+  }
+}
+
+/**
+ * Saves `files` ({ url, bytes }, from MapOffer.missing) into the map cache one
+ * after another, checking each against the manifest's size. Rejects on the
+ * first failure or on abort; whatever was saved by then stays saved.
+ */
+export async function saveMaps(files, { signal, onProgress } = {}) {
+  if (saving) throw new Error('a map download is already running');
+  saving = true;
+  try {
+    const cache = await caches.open(CACHE);
+    let done = 0;
+    for (const { url, bytes } of files) {
+      const res = await fetch(url, { signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      if (blob.size !== bytes) throw new Error(`${url.split('/').pop()} is not the file the manifest lists`);
+      await cache.put(url, new Response(blob));
+      done += bytes;
+      onProgress?.(done);
+    }
+  } finally {
+    saving = false;
   }
 }
 
@@ -90,7 +122,7 @@ export class MapOffer {
 
   /** On entering the Solar System, unless declined, already saved, or impossible here. */
   async offer() {
-    if (this.checking || !this.el.hidden || declined()) return;
+    if (this.checking || !this.el.hidden || saving || hdDeclined()) return;
     this.checking = true;
     try {
       this.files = await this.missing();
@@ -131,24 +163,18 @@ export class MapOffer {
     const abort = (this.abort = new AbortController());
     // Inside the click, where a browser that asks the user can ask.
     navigator.storage?.persist?.().catch(() => {});
-    const total = this.total();
-    let done = 0;
-    const step = () => {
-      this.show(`Saving maps… ${mb(done)} of ${mb(total)}`, true);
-      this.progress.value = done / total;
-    };
-    step();
     try {
-      const cache = await caches.open(CACHE);
-      for (const { url, bytes } of this.files) {
-        const res = await fetch(url, { signal: abort.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
-        if (blob.size !== bytes) throw new Error(`${url.split('/').pop()} is not the file the manifest lists`);
-        await cache.put(url, new Response(blob));
-        done += bytes;
-        step();
-      }
+      // Off with the Download button at once, so a second press cannot start a second download.
+      this.show('Saving maps…', true);
+      // The game may have saved some of them since this was offered.
+      this.files = await this.missing();
+      const total = this.total();
+      const step = (done) => {
+        this.show(`Saving maps… ${mb(done)} of ${mb(total)}`, true);
+        this.progress.value = total ? done / total : 1;
+      };
+      step(0);
+      await saveMaps(this.files, { signal: abort.signal, onProgress: step });
       this.show('Maps saved on this device.', true);
       this.buttons.cancel.hidden = true;
       setTimeout(() => (this.el.hidden = true), DONE_MS);
